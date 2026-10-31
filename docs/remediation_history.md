@@ -446,3 +446,28 @@
 
   7. **総合テストスイート実機検証**:
      - `test_polyglot_suite.py` を実行し、全 7 テスト（辞書・ホットワード、VAD、7言語ASRデコード、動的遅延ロード＆メモリ解放、7言語相互翻訳、Unicode言語自動判定、セキュリティ制約）が **100% PASS** することを確認。
+
+
+## 21. 企業プロキシ対策および Windows & macOS スタンドアロンポータブル版の GitHub Releases 公開
+- **背景・ユーザー要望**:
+  - 企業内ネットワーク（Zscaler, Palo Alto 等の SSL 可視化プロキシ）で UV_SYSTEM_CERTS 警告や PyPI ダウンロード時の HTTP 403 Forbidden が発生する問題への対処。
+  - 「受け取る手段がない（外部ダウンロード不可）」という制約を突破するため、GitHub Releases に必要な依存パッケージ・最適化済みモデルをすべて内包した完全オフライン動作のスタンドアロン ZIP アセットを公開したい。
+  - Windows 版に続き、「これWindowsだけ？Mac版もつくってAssetにいれてよ」という要望に応じ、macOS（Apple Silicon）版ポータブルパッケージを整備・公開する。
+  - 再配布におけるライセンス・規約遵守（LGPLv3 の動的リンク性、各 OSS 著作権表示）の徹底確認。
+
+- **実施内容**:
+  1. **企業プロキシ・証明書対応の自動化**:
+     - setup.ps1 および setup.sh の先頭に UV_SYSTEM_CERTS=true および PIP_USE_FEATURE=truststore を自動設定するコードを追加。Windows/Mac の OS 証明書ストア（Windows Root CA / macOS Keychain）を uv / pip がネイティブ参照するように改修。
+  2. **Windows 向けスタンドアロン ZIP パッケージ（v1.0.0）の公開**:
+     - INT8 最適化済みモデル群（約 800MB）、ビジネス辞書、UI、ソースコード、および Python 3.12 仮想環境（.venv）を完全内包。
+     - 解凍して start.bat をダブルクリックするだけで、コマンド入力や外部ダウンロード一切不要で即起動。
+     - hayamimi-polyglot-v1.0.0-windows-portable.zip（1662.81 MB）として GitHub Releases v1.0.0 に公開。
+  3. **macOS（Apple Silicon M1〜M4）向け完全オフラインポータブルパッケージの設計・公開**:
+     - macOS の Python 仮想環境は他マシンにコピーするとシンボリックリンクやインタープリタパスの不整合（bad interpreter）が発生しやすいため、「macOS arm64 / universal2 向け全依存 wheel（39個, 487MB）＋最適化済みモデル群（約800MB）を内包した ZIP」アーキテクチャを確立。
+     - 初回起動時、同梱のオフライン wheel ディレクトリから uv pip install --no-index --find-links ./wheels を実行し、その Mac のローカル環境に完全適合した .venv を外部通信ゼロ（数秒）で自律生成・即起動。
+     - ダブルクリック実行用 Hayamimi Polyglot.command（Unix 実行権限 0o755 付与）および start.sh を同梱。
+     - hayamimi-polyglot-v1.0.0-macos-portable.zip（1687.01 MB）を生成し、GitHub Releases v1.0.0 に追加アップロード。
+  4. **再配布ライセンス・規約遵守の確認**:
+     - PySide6（LGPLv3）: wheel 形式での動的リンク・バイナリ配布であり、リバースエンジニアリングやライブラリ差し替えが担保されているため規約に完全適合。
+     - FunASR / SenseVoice（FunASR Model License v1.1）: 商用利用許諾確認済み。
+     - sherpa-onnx / SudachiPy (Apache 2.0), CTranslate2 / M2M-100 (MIT), ReazonSpeech (Apache 2.0): 各ライセンスと著作権表示を Third_Party_Notices.md に同梱・遵守。

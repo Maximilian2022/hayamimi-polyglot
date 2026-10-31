@@ -170,3 +170,17 @@ Hayamimi Polyglot で稼働する全 8 言語対応モデル群と推論エン�
   - 依存ライブラリの更新にあたっては、Python 3.14 上での動作検証および `test_polyglot_suite.py` の全テスト（ASR/NMT/VAD/辞書/セキュリティ制約）が 100% PASS することを必須要件とする。
 
 
+
+---
+
+## 5. 企業プロキシ・完全オフラインポータブル配布アーキテクチャ
+- **企業プロキシ (Zscaler / Palo Alto / BlueCoat) 自動突破**:
+  - `setup.ps1` および `setup.sh` に `UV_SYSTEM_CERTS=true` / `PIP_USE_FEATURE=truststore` を標準組込み。
+  - OSネイティブの信頼されたルート証明書ストア（Windows Root CA / macOS Keychain）を直接参照し、SSLインスペクション環境における証明書検証エラー（`CERTIFICATE_VERIFY_FAILED`）および PyPI ダウンロード拒否（HTTP 403）を回避。
+- **Windows Standalone Portable ZIP (`hayamimi-polyglot-v1.0.0-windows-portable.zip`)**:
+  - Python 3.12 仮想環境（`.venv`）、INT8最適化モデル群、ビジネス辞書、UIを全内包。
+  - 解凍して `start.bat` ダブルクリックで即起動。
+- **macOS Standalone Portable ZIP (`hayamimi-polyglot-v1.0.0-macos-portable.zip`)**:
+  - macOS 特有の仮想環境パス不整合（`bad interpreter`）を回避するため、全依存 wheel（macOS arm64/universal2 向け 39 個, 487MB）＋最適化モデル群を ZIP に内包。
+  - 初回起動時、同梱の `wheels/` から `uv pip install --no-index --find-links ./wheels` により、その Mac のローカル環境に完全適合した `.venv` を外部通信ゼロで自律構築し即起動。
+  - Finder ダブルクリック用 `Hayamimi Polyglot.command`（実行権限 0o755 同梱）で実行可能。
