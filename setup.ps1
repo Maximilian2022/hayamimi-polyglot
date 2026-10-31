@@ -1,4 +1,4 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Hayamimi Polyglot - Modern GUI Installer & Updater (Windows 11)
 # Zero Admin Required (Non-admin friendly)
 # Automatically detects & avoids OneDrive / Google Drive sync folders

@@ -81,4 +81,5 @@
     - `Task.Run` を排除し、UI イベントハンドラ内で直接処理を実行。
     - `Append-Log` 内で `[System.Windows.Forms.Application]::DoEvents()` および `DispatcherPriority.Render` による即時描画キューフラッシュを実装。
     - これにより、Runspace 例外が 100% 解消され、プログレスバーがアニメーションしながら各処理工程（uv確認、venv構築、依存ライブラリ同期、モデル配備）のログがリアルタイムに 1 行ずつ描画・スクロールされるように改修。
+    - さらに、Windows PowerShell 5.1 が UTF-8（BOMなし）ファイルを Shift-JIS と誤認して構文エラー（絵文字やクォートの破損）を起こすのを防ぐため、UTF-8 BOM 付きエンコーディングで保存し、完全なパース整合性を確立。
 
