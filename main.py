@@ -60,15 +60,17 @@ class SessionWorker(QtCore.QObject):
     def __init__(
         self,
         asr_engine: BusinessASREngine,
-        vad: SileroVAD,
-        translator: LocalTranslator,
+        vad_self: Optional[SileroVAD] = None,
+        translator: Optional[LocalTranslator] = None,
         vad_remote: Optional[SileroVAD] = None,
+        vad: Optional[SileroVAD] = None,
     ):
         super().__init__()
         self.asr_engine = asr_engine
+        v_self = vad_self if vad_self is not None else vad
         self.vads: Dict[str, SileroVAD] = {
-            "self": vad,
-            "remote": vad_remote if vad_remote is not None else vad,
+            "self": v_self,
+            "remote": vad_remote if vad_remote is not None else v_self,
         }
         self.translator = translator
 

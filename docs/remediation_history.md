@@ -509,3 +509,15 @@
   4. **実機隔離検証 & GitHub Releases 上書き公開**:
      - 解凍先での `FINAL VERIFICATION: QtCore & QtWidgets loaded perfectly!` および `main imported successfully!` を確認。
      - `hayamimi-polyglot-v1.0.0-windows-portable.zip`（1.82 GB）を GitHub Releases `v1.0.0` に再アップロード完了。
+
+
+## 24. SessionWorker.__init__() の引数不整合（vad_self）修正
+- **背景・不具合報告**:
+  - `Starting Local Web Server on 127.0.0.1:8844` 後に、`TypeError: SessionWorker.__init__() got an unexpected keyword argument 'vad_self'` が発生。
+  - 原因調査:
+    - Phase 1 の独立 VAD インスタンス分離（B5: 自分マイク用 `vad_self` と相手音声用 `vad_remote` の分離）の改修時に、`main.py` 呼び出し側が `SessionWorker(vad_self=vad_self, vad_remote=vad_remote)` と渡していたのに対し、`SessionWorker.__init__` の第2引数が `vad` のまま定義されていた。
+- **実施内容**:
+  1. `SessionWorker.__init__`:
+     - 引数定義を `vad_self: Optional[SileroVAD] = None, ..., vad: Optional[SileroVAD] = None` に改修し、`vad_self` でも従来の `vad` でも両対応できるよう柔軟化。
+  2. 実機ヘッドレス統合テストを実施し、`SessionWorker` インスタンス化および全シグナル接続（`subtitle_ready` 等）が正常完了することを確認。
+  3. ポータブルパッケージを再ビルドし、GitHub Releases `v1.0.0` の `hayamimi-polyglot-v1.0.0-windows-portable.zip` を上書き更新。

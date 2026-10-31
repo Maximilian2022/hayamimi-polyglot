@@ -47,3 +47,6 @@ ehthumbs.db
 .vscode/
 .idea/
 
+build_win_portable/
+dist_builder*.py
+hayamimi-polyglot-*.zip
