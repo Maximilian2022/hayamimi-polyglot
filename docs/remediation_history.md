@@ -567,3 +567,18 @@
        - Job 1 が成功した場合に起動。
        - モデル群を GitHub Releases / `actions/cache` から取得し、Win/Mac 双方で Portable ZIP をビルド ＆ 起動スモークテスト。
        - テスト合格後、`gh release upload v1.0.0 ... --clobber` で自動リリース公開。
+
+
+## 27. CI/CD パイプラインの最新化（Node.js 24 対応）と Windows CI コンソール互換性改修
+- **背景・ユーザー要望**:
+  - GitHub Actions 実行時に `Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4` という警告が出ているため、最新バージョンへ移行したい。
+  - Windows CI ランナー上でワンライナー無人検証が `UnicodeEncodeError: 'charmap' codec can't encode character '\u2713'`（cp1252）により異常終了していた。
+- **実施内容**:
+  1. **GitHub Actions の最新メジャーバージョンへの更新**:
+     - `actions/checkout@v4` ➡️ `actions/checkout@v7` に更新。
+     - `actions/cache@v4` ➡️ `actions/cache@v6` に更新。
+     - これにより Node.js 20 非推奨化警告を完全に解消し、Node.js 24 ネイティブ環境で安全に動作。
+  2. **CI 検証スクリプトの出力文字互換性確保**:
+     - `ci-release-portable.yml` のスモークテスト検証文字列において、非 ASCII 記号（`✓`）を標準 ASCII プレフィックス（`[OK]`）に置換。
+     - Windows Server の標準文字コード（cp1252）環境でもエンコードエラーを起こさず確実に通過するよう改修。
+

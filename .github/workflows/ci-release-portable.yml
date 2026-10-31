@@ -28,7 +28,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv (macOS)
         if: runner.os == 'macOS'
@@ -53,7 +53,7 @@ jobs:
           & .\setup.ps1 -Unattended -InstallPath $installPath
           
           $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
-          $testCmd = "import os; os.environ['QT_QPA_PLATFORM'] = 'offscreen'; from PySide6 import QtCore, QtWidgets; import main; print('✓ Windows One-liner setup passed!')"
+          $testCmd = "import os; os.environ['QT_QPA_PLATFORM'] = 'offscreen'; from PySide6 import QtCore, QtWidgets; import main; print('[OK] Windows One-liner setup passed!')"
           & $pyExe -c $testCmd
 
       - name: Verify macOS One-liner Setup
@@ -65,7 +65,7 @@ jobs:
           ./setup.sh "$INSTALL_PATH" --unattended
           
           TEST_PY="$INSTALL_PATH/.venv/bin/python"
-          QT_QPA_PLATFORM=offscreen "$TEST_PY" -c "import os; from PySide6 import QtCore, QtWidgets; import main; print('✓ macOS One-liner setup passed!')"
+          QT_QPA_PLATFORM=offscreen "$TEST_PY" -c "import os; from PySide6 import QtCore, QtWidgets; import main; print('[OK] macOS One-liner setup passed!')"
 
   # -------------------------------------------------------------
   # Job 2: Build, Verify & Release Portable Packages (Win & Mac)
@@ -86,7 +86,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install uv (macOS)
         if: runner.os == 'macOS'
@@ -104,7 +104,7 @@ jobs:
 
       - name: Cache or Fetch AI Models from Release v1.0.0
         id: cache-models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: models
           key: models-int8-v1
