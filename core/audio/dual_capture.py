@@ -24,6 +24,19 @@ from .win_loopback import (
 )
 
 
+def _resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int = 16000) -> np.ndarray:
+    """Ultra-fast linear interpolation resampler (zero external dependencies)."""
+    if orig_sr == target_sr:
+        return audio
+    orig_len = len(audio)
+    target_len = int(round(orig_len * target_sr / orig_sr))
+    if orig_len == 0 or target_len == 0:
+        return np.zeros(0, dtype=np.float32)
+    x_orig = np.linspace(0, 1, orig_len, endpoint=False)
+    x_target = np.linspace(0, 1, target_len, endpoint=False)
+    return np.interp(x_target, x_orig, audio).astype(np.float32)
+
+
 class DualTrackCapture:
     """
     Manages simultaneous capture of:
@@ -79,14 +92,41 @@ class DualTrackCapture:
             self._remote_thread.join(timeout=1.0)
 
     def _run_mic(self) -> None:
-        """Capture microphone using sounddevice."""
+        """Capture microphone using robust sounddevice streaming."""
+        dev_info = None
+        is_wasapi = False
+        device_name = "Default"
         try:
-            def callback(indata, frames, time_info, status):
-                if status:
-                    pass
+            if self.mic_device is not None:
+                dev_info = sd.query_devices(self.mic_device)
+            else:
+                default_in = sd.default.device[0]
+                if default_in >= 0:
+                    dev_info = sd.query_devices(default_in)
+            if dev_info:
+                device_name = dev_info.get("name", "Unknown")
+                hostapi_id = dev_info.get("hostapi", -1)
+                if hostapi_id >= 0:
+                    api_name = sd.query_hostapis(hostapi_id).get("name", "")
+                    is_wasapi = "WASAPI" in api_name
+        except Exception as ex:
+            print(f"[Audio Mic] Query warning: {ex}")
+
+        print(f"[Audio Mic] Target device: '{device_name}' (ID: {self.mic_device}, WASAPI: {is_wasapi})")
+
+        # Approach 1: Direct 16kHz stream (with auto_convert for WASAPI)
+        opened = False
+        extra_settings = None
+        if is_wasapi and hasattr(sd, "WasapiSettings"):
+            try:
+                extra_settings = sd.WasapiSettings(auto_convert=True)
+            except Exception:
+                pass
+
+        try:
+            def direct_cb(indata, frames, time_info, status):
                 if not self.running:
                     raise sd.CallbackStop()
-                # Mono float32 16kHz
                 mono = indata[:, 0].copy()
                 self.on_chunk("self", mono)
 
@@ -96,12 +136,58 @@ class DualTrackCapture:
                 dtype="float32",
                 blocksize=self.chunk_size,
                 device=self.mic_device,
-                callback=callback,
+                extra_settings=extra_settings,
+                callback=direct_cb,
             ):
+                print(f"[Audio Mic] Direct 16kHz stream successfully started on '{device_name}'.")
+                opened = True
                 while self.running and not self._stop_event.is_set():
                     self._stop_event.wait(0.1)
         except Exception as exc:
-            pass
+            print(f"[Audio Mic] Direct stream open notice ({exc}). Switching to adaptive native-rate fallback...")
+
+        if opened or not self.running or self._stop_event.is_set():
+            return
+
+        # Approach 2: Adaptive native samplerate + channels fallback with software resampler
+        try:
+            native_sr = int(dev_info.get("default_samplerate", 48000)) if dev_info else 48000
+            max_in = int(dev_info.get("max_input_channels", 1)) if dev_info else 1
+            native_ch = max(1, min(2, max_in))
+            native_block = int(native_sr * 0.032)  # ~32ms
+
+            rem_buf = np.zeros(0, dtype=np.float32)
+            rem_lock = threading.Lock()
+
+            def native_cb(indata, frames, time_info, status):
+                nonlocal rem_buf
+                if not self.running:
+                    raise sd.CallbackStop()
+                if native_ch > 1:
+                    mono = indata.mean(axis=1)
+                else:
+                    mono = indata[:, 0]
+                resampled = _resample_linear(mono, native_sr, self.sample_rate)
+                with rem_lock:
+                    rem_buf = np.concatenate([rem_buf, resampled])
+                    while len(rem_buf) >= self.chunk_size:
+                        chunk = rem_buf[:self.chunk_size]
+                        rem_buf = rem_buf[self.chunk_size:]
+                        self.on_chunk("self", chunk)
+
+            with sd.InputStream(
+                samplerate=native_sr,
+                channels=native_ch,
+                dtype="float32",
+                blocksize=native_block,
+                device=self.mic_device,
+                callback=native_cb,
+            ):
+                print(f"[Audio Mic] Native fallback stream running ({native_sr}Hz {native_ch}ch -> 16kHz) on '{device_name}'.")
+                while self.running and not self._stop_event.is_set():
+                    self._stop_event.wait(0.1)
+        except Exception as exc2:
+            print(f"[Audio Mic] Critical: Both direct and native mic capture failed: {exc2}")
 
     def _run_remote(self) -> None:
         """Capture Zoom/Teams or Speaker audio."""

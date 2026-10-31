@@ -61,6 +61,10 @@ class SessionWorker(QtCore.QObject):
 
         # Per-track audio buffers & VAD state
         self._buffers: Dict[str, List[np.ndarray]] = {"self": [], "remote": []}
+        self._preroll: Dict[str, collections.deque] = {
+            "self": collections.deque(maxlen=8),
+            "remote": collections.deque(maxlen=8),
+        }
         self._silence_frames: Dict[str, int] = {"self": 0, "remote": 0}
         self._is_speaking: Dict[str, bool] = {"self": False, "remote": False}
         self._lock = threading.Lock()
@@ -88,19 +92,28 @@ class SessionWorker(QtCore.QObject):
         is_speech = self.vad.is_speech(pcm_512)
 
         with self._lock:
+            preroll = self._preroll.setdefault(track, collections.deque(maxlen=8))
             buf = self._buffers.setdefault(track, [])
-            buf.append(pcm_512)
 
             if is_speech:
-                self._is_speaking[track] = True
+                if not self._is_speaking[track]:
+                    self._is_speaking[track] = True
+                    # Prepend pre-roll audio (~256ms) to avoid cutting off first consonant
+                    buf.extend(list(preroll))
+                    print(f"[VAD:{track}] Speech started...")
+                buf.append(pcm_512)
                 self._silence_frames[track] = 0
             else:
                 if self._is_speaking[track]:
+                    buf.append(pcm_512)
                     self._silence_frames[track] += 1
+                else:
+                    # Keep recent audio as preroll while silent
+                    preroll.append(pcm_512)
 
             # End of speech detection: ~12 frames (approx 380ms of silence)
             if self._is_speaking[track] and self._silence_frames[track] >= 12:
-                if len(buf) >= 15:  # At least ~0.5s of audio
+                if len(buf) >= 12:  # At least ~0.38s of audio
                     segment = np.concatenate(buf).astype(np.float32)
                     threading.Thread(
                         target=self._process_segment,
@@ -112,9 +125,10 @@ class SessionWorker(QtCore.QObject):
                 self._buffers[track] = []
                 self._is_speaking[track] = False
                 self._silence_frames[track] = 0
+                preroll.clear()
 
-            # Guard against infinite monologue buffer without pause (split at ~15s)
-            elif len(buf) > 480:
+            # Guard against infinite monologue buffer without pause (split at ~12s)
+            elif len(buf) > 375:
                 segment = np.concatenate(buf).astype(np.float32)
                 threading.Thread(
                     target=self._process_segment,
@@ -125,9 +139,14 @@ class SessionWorker(QtCore.QObject):
 
     def _process_segment(self, track: str, segment: np.ndarray):
         """Transcribe and multicast translate to all other selected languages."""
+        dur = len(segment) / 16000.0
+        print(f"[ASR:{track}] Decoding segment ({dur:.2f}s)...")
         text = self.asr_engine.transcribe_pcm(segment)
-        if not text:
+        if not text or not text.strip():
+            print(f"[ASR:{track}] (No speech recognized or noise)")
             return
+
+        print(f"[ASR:{track}] Recognized: {text}")
 
         # Emit raw subtitle immediately
         self.subtitle_ready.emit(track, text, {})
@@ -139,6 +158,7 @@ class SessionWorker(QtCore.QObject):
         if target_langs:
             def on_translated(orig: str, trans_dict: Dict[str, str]):
                 if trans_dict:
+                    print(f"[Translate:{track}] {trans_dict}")
                     self.translations_ready.emit(trans_dict)
                     broadcast_event("subtitle", {"track": track, "text": orig, "translations": trans_dict})
 
@@ -149,9 +169,9 @@ def find_models_dir() -> Path:
     candidates = [
         _HERE / "models",
         Path("models"),
+        Path("D:/hayamimi4b/models"),
+        Path.home() / "hayamimi4b/models",
         _HERE.parent / "models",
-        Path("E:/hayamimi/models"),
-        Path.home() / "hayamimi/models",
     ]
     for c in candidates:
         if c.is_dir() and (c / "silero_vad.onnx").exists():

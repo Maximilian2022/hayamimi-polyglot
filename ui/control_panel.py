@@ -15,19 +15,23 @@ Features:
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import webbrowser
+from pathlib import Path
 from typing import Callable, List, Optional
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, QPoint, Signal
 
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+
 try:
-    from .overlay_window import OverlayWindow, set_stealth_mode
+    from .overlay_window import OverlayWindow, set_stealth_mode, DEFAULT_COLORS
     from core.audio.win_loopback import list_audio_processes, AudioProcess
 except Exception:
-    from ui.overlay_window import OverlayWindow, set_stealth_mode
+    from ui.overlay_window import OverlayWindow, set_stealth_mode, DEFAULT_COLORS
     from core.audio.win_loopback import list_audio_processes, AudioProcess
 
 
@@ -133,6 +137,23 @@ class ControlPanel(QtWidgets.QWidget):
             QCheckBox::indicator:checked {
                 background-color: #3B82F6;
                 border-color: #3B82F6;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #334155;
+                border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #38BDF8;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #F8FAFC;
+                border: 1px solid #38BDF8;
+                width: 14px;
+                margin-top: -4px;
+                margin-bottom: -4px;
+                border-radius: 7px;
             }
         """)
 
@@ -252,6 +273,132 @@ class ControlPanel(QtWidgets.QWidget):
 
         layout.addWidget(grp_agenda)
 
+        # 4.5 Subtitle Appearance Customization (Font, Size, Area)
+        grp_sub_custom = QtWidgets.QGroupBox("🎨 字幕カスタマイズ (フォント・文字サイズ・エリア)")
+        custom_layout = QtWidgets.QVBoxLayout(grp_sub_custom)
+        custom_layout.setSpacing(6)
+
+        # Font selection
+        row_font = QtWidgets.QHBoxLayout()
+        row_font.addWidget(QtWidgets.QLabel("フォント:"))
+        self.combo_font = QtWidgets.QComboBox()
+        self.combo_font.setEditable(True)
+        self.combo_font.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+        self.combo_font.addItem("システム標準 (Meiryo / Yu Gothic)", "")
+        self.populate_fonts()
+        self.combo_font.currentTextChanged.connect(self.on_font_changed)
+        row_font.addWidget(self.combo_font, 1)
+        custom_layout.addLayout(row_font)
+
+        # Font Size slider
+        row_font_size = QtWidgets.QHBoxLayout()
+        row_font_size.addWidget(QtWidgets.QLabel("文字サイズ:"))
+        self.slider_font_size = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.slider_font_size.setRange(12, 38)
+        self.slider_font_size.setValue(18)
+        self.lbl_font_size_val = QtWidgets.QLabel("18px")
+        self.lbl_font_size_val.setStyleSheet("color: #38BDF8; font-weight: bold; min-width: 42px;")
+        self.slider_font_size.valueChanged.connect(self.on_font_size_changed)
+        row_font_size.addWidget(self.slider_font_size, 1)
+        row_font_size.addWidget(self.lbl_font_size_val)
+        custom_layout.addLayout(row_font_size)
+
+        # Area Size (Presets + Sliders)
+        row_area = QtWidgets.QHBoxLayout()
+        row_area.addWidget(QtWidgets.QLabel("エリア:"))
+
+        btn_preset_std = QtWidgets.QPushButton("標準")
+        btn_preset_std.setStyleSheet("font-size: 11px; padding: 2px 8px; background-color: #334155;")
+        btn_preset_std.clicked.connect(lambda: self.apply_area_preset(840, 190))
+        row_area.addWidget(btn_preset_std)
+
+        btn_preset_wide = QtWidgets.QPushButton("ワイド")
+        btn_preset_wide.setStyleSheet("font-size: 11px; padding: 2px 8px; background-color: #334155;")
+        btn_preset_wide.clicked.connect(lambda: self.apply_area_preset(1150, 220))
+        row_area.addWidget(btn_preset_wide)
+
+        btn_preset_compact = QtWidgets.QPushButton("コンパクト")
+        btn_preset_compact.setStyleSheet("font-size: 11px; padding: 2px 8px; background-color: #334155;")
+        btn_preset_compact.clicked.connect(lambda: self.apply_area_preset(650, 140))
+        row_area.addWidget(btn_preset_compact)
+
+        custom_layout.addLayout(row_area)
+
+        # Width & Height Sliders
+        row_wh = QtWidgets.QHBoxLayout()
+        row_wh.addWidget(QtWidgets.QLabel("幅:"))
+        self.slider_width = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.slider_width.setRange(500, 1600)
+        self.slider_width.setValue(840)
+        self.lbl_width_val = QtWidgets.QLabel("840px")
+        self.lbl_width_val.setStyleSheet("color: #94A3B8; font-size: 11px; min-width: 44px;")
+        self.slider_width.valueChanged.connect(self.on_area_size_changed)
+        row_wh.addWidget(self.slider_width, 1)
+        row_wh.addWidget(self.lbl_width_val)
+
+        row_wh.addWidget(QtWidgets.QLabel("高:"))
+        self.slider_height = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.slider_height.setRange(120, 500)
+        self.slider_height.setValue(190)
+        self.lbl_height_val = QtWidgets.QLabel("190px")
+        self.lbl_height_val.setStyleSheet("color: #94A3B8; font-size: 11px; min-width: 44px;")
+        self.slider_height.valueChanged.connect(self.on_area_size_changed)
+        row_wh.addWidget(self.slider_height, 1)
+        row_wh.addWidget(self.lbl_height_val)
+        custom_layout.addLayout(row_wh)
+
+        # Background Opacity
+        row_op = QtWidgets.QHBoxLayout()
+        row_op.addWidget(QtWidgets.QLabel("背景の濃さ:"))
+        self.slider_opacity = QtWidgets.QSlider(Qt.Orientation.Horizontal)
+        self.slider_opacity.setRange(20, 100)
+        self.slider_opacity.setValue(82)
+        self.lbl_opacity_val = QtWidgets.QLabel("82%")
+        self.lbl_opacity_val.setStyleSheet("color: #38BDF8; font-weight: bold; min-width: 38px;")
+        self.slider_opacity.valueChanged.connect(self.on_opacity_changed)
+        row_op.addWidget(self.slider_opacity, 1)
+        row_op.addWidget(self.lbl_opacity_val)
+        custom_layout.addLayout(row_op)
+
+        # Colors: Speaker & Translation Languages
+        row_colors_title = QtWidgets.QHBoxLayout()
+        row_colors_title.addWidget(QtWidgets.QLabel("🎨 文字色 (メイン言語・翻訳言語別):"))
+        btn_reset_colors = QtWidgets.QPushButton("🔄 標準色に戻す")
+        btn_reset_colors.setStyleSheet("font-size: 10px; padding: 2px 6px; background-color: #334155;")
+        btn_reset_colors.clicked.connect(self.reset_colors)
+        row_colors_title.addWidget(btn_reset_colors)
+        row_colors_title.addStretch()
+        custom_layout.addLayout(row_colors_title)
+
+        # Primary Speaker colors (Self / Remote / Text)
+        self.color_btns = {}
+        row_spk_colors = QtWidgets.QHBoxLayout()
+        row_spk_colors.addWidget(QtWidgets.QLabel("発言者:"))
+        for key, label in [("self_tag", "自分"), ("remote_tag", "相手"), ("orig_text", "本文")]:
+            lbl = QtWidgets.QLabel(f"{label}:")
+            lbl.setStyleSheet("font-size: 11px; color: #94A3B8;")
+            row_spk_colors.addWidget(lbl)
+            btn = self._create_color_button(key)
+            self.color_btns[key] = btn
+            row_spk_colors.addWidget(btn)
+        row_spk_colors.addStretch()
+        custom_layout.addLayout(row_spk_colors)
+
+        # Translation Language colors
+        row_trans_colors = QtWidgets.QHBoxLayout()
+        row_trans_colors.addWidget(QtWidgets.QLabel("翻訳言語:"))
+        for lang_code, lang_label in [("ja", "日"), ("en", "米"), ("zh", "中"), ("ko", "韓"), ("fr", "仏"), ("de", "独"), ("es", "西"), ("vi", "越")]:
+            lbl = QtWidgets.QLabel(f"{lang_label}:")
+            lbl.setStyleSheet("font-size: 11px; color: #94A3B8;")
+            row_trans_colors.addWidget(lbl)
+            btn = self._create_color_button(lang_code)
+            self.color_btns[lang_code] = btn
+            row_trans_colors.addWidget(btn)
+        row_trans_colors.addStretch()
+        custom_layout.addLayout(row_trans_colors)
+
+        layout.addWidget(grp_sub_custom)
+
         # 5. Display & Security Settings
         grp_display = QtWidgets.QGroupBox("画面共有 & 表示セキュリティ")
         disp_layout = QtWidgets.QVBoxLayout(grp_display)
@@ -301,7 +448,179 @@ class ControlPanel(QtWidgets.QWidget):
 
         layout.addLayout(bottom_layout)
 
-        self.resize(460, 540)
+        self.resize(480, 680)
+        self.load_settings()
+
+    def populate_fonts(self):
+        """Scan local system fonts and populate dropdown."""
+        try:
+            fonts = QtGui.QFontDatabase.families()
+            favs = ["Meiryo", "Yu Gothic UI", "BIZ UDPGothic", "Segoe UI", "Arial", "Noto Sans JP"]
+            for f in favs:
+                if f in fonts:
+                    self.combo_font.addItem(f, f)
+            for f in sorted(fonts):
+                if f not in favs:
+                    self.combo_font.addItem(f, f)
+        except Exception as ex:
+            print(f"[UI] Error listing fonts: {ex}")
+
+    def on_font_changed(self, font_name: str):
+        if font_name.startswith("システム標準"):
+            self.overlay.set_font_family("")
+        else:
+            self.overlay.set_font_family(font_name)
+        self.save_settings()
+
+    def on_font_size_changed(self, size: int):
+        self.lbl_font_size_val.setText(f"{size}px")
+        self.overlay.set_font_size(size)
+        self.save_settings()
+
+    def apply_area_preset(self, w: int, h: int):
+        self.slider_width.blockSignals(True)
+        self.slider_height.blockSignals(True)
+        self.slider_width.setValue(w)
+        self.slider_height.setValue(h)
+        self.slider_width.blockSignals(False)
+        self.slider_height.blockSignals(False)
+        self.lbl_width_val.setText(f"{w}px")
+        self.lbl_height_val.setText(f"{h}px")
+        self.overlay.set_overlay_size(w, h)
+        self.save_settings()
+
+    def on_area_size_changed(self):
+        w = self.slider_width.value()
+        h = self.slider_height.value()
+        self.lbl_width_val.setText(f"{w}px")
+        self.lbl_height_val.setText(f"{h}px")
+        self.overlay.set_overlay_size(w, h)
+        self.save_settings()
+
+    def _create_color_button(self, color_key: str) -> QtWidgets.QPushButton:
+        initial_hex = self.overlay.colors.get(color_key, "#FFFFFF")
+        btn = QtWidgets.QPushButton()
+        btn.setFixedSize(22, 18)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(f"クリックして色を変更: {color_key}")
+        btn.setStyleSheet(f"background-color: {initial_hex}; border: 1px solid #64748B; border-radius: 3px;")
+
+        def on_click():
+            curr = self.overlay.colors.get(color_key, "#FFFFFF")
+            color = QtWidgets.QColorDialog.getColor(QtGui.QColor(curr), self, f"文字色を選択 ({color_key})")
+            if color.isValid():
+                hex_str = color.name()
+                btn.setStyleSheet(f"background-color: {hex_str}; border: 1px solid #FFFFFF; border-radius: 3px;")
+                self.overlay.set_color(color_key, hex_str)
+                self.save_settings()
+
+        btn.clicked.connect(on_click)
+        return btn
+
+    def reset_colors(self):
+        for key, hex_val in DEFAULT_COLORS.items():
+            self.overlay.colors[key] = hex_val
+            if key in self.color_btns:
+                self.color_btns[key].setStyleSheet(f"background-color: {hex_val}; border: 1px solid #64748B; border-radius: 3px;")
+        self.overlay.refresh_display()
+        self.save_settings()
+
+    def on_opacity_changed(self, val: int):
+        self.lbl_opacity_val.setText(f"{val}%")
+        self.overlay.set_bg_opacity(val / 100.0)
+        self.save_settings()
+
+    def load_settings(self):
+        """Load persistent settings from config.json."""
+        if not _CONFIG_PATH.exists():
+            return
+        try:
+            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            ui_cfg = cfg.get("ui", {})
+            font_fam = ui_cfg.get("font_family", "")
+            if font_fam:
+                idx = self.combo_font.findText(font_fam)
+                if idx >= 0:
+                    self.combo_font.setCurrentIndex(idx)
+                else:
+                    self.combo_font.setCurrentText(font_fam)
+                self.overlay.set_font_family(font_fam)
+
+            font_sz = ui_cfg.get("font_size", 18)
+            self.slider_font_size.setValue(int(font_sz))
+            self.lbl_font_size_val.setText(f"{font_sz}px")
+            self.overlay.set_font_size(int(font_sz))
+
+            ow = ui_cfg.get("overlay_width", 840)
+            oh = ui_cfg.get("overlay_height", 190)
+            self.slider_width.setValue(int(ow))
+            self.slider_height.setValue(int(oh))
+            self.lbl_width_val.setText(f"{ow}px")
+            self.lbl_height_val.setText(f"{oh}px")
+            self.overlay.set_overlay_size(int(ow), int(oh))
+
+            opac = ui_cfg.get("overlay_opacity", 0.82)
+            opac_pct = int(opac * 100) if opac <= 1.0 else int(opac)
+            self.slider_opacity.setValue(opac_pct)
+            self.lbl_opacity_val.setText(f"{opac_pct}%")
+            self.overlay.set_bg_opacity(opac_pct / 100.0)
+
+            # Saved colors
+            saved_colors = ui_cfg.get("colors", {})
+            if isinstance(saved_colors, dict):
+                for k, v in saved_colors.items():
+                    self.overlay.colors[k] = v
+                    if k in self.color_btns:
+                        self.color_btns[k].setStyleSheet(f"background-color: {v}; border: 1px solid #64748B; border-radius: 3px;")
+                self.overlay.refresh_display()
+
+            # Saved microphone
+            saved_mic = cfg.get("audio", {}).get("selected_mic_name")
+            if saved_mic:
+                for i in range(self.combo_mic.count()):
+                    if self.combo_mic.itemText(i) == saved_mic:
+                        self.combo_mic.setCurrentIndex(i)
+                        break
+
+            # Saved languages
+            saved_langs = cfg.get("audio", {}).get("selected_languages")
+            if saved_langs and isinstance(saved_langs, list):
+                for chk in self.lang_checkboxes.values():
+                    code = chk.property("lang_code")
+                    chk.setChecked(code in saved_langs)
+        except Exception as e:
+            print(f"[Config] Error loading settings: {e}")
+
+    def save_settings(self):
+        """Save settings to config.json."""
+        try:
+            cfg = {}
+            if _CONFIG_PATH.exists():
+                with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+
+            ui_cfg = cfg.setdefault("ui", {})
+            curr_text = self.combo_font.currentText()
+            ui_cfg["font_family"] = curr_text if not curr_text.startswith("システム標準") else ""
+            ui_cfg["font_size"] = self.slider_font_size.value()
+            ui_cfg["overlay_width"] = self.slider_width.value()
+            ui_cfg["overlay_height"] = self.slider_height.value()
+            ui_cfg["overlay_opacity"] = self.slider_opacity.value() / 100.0
+            ui_cfg["colors"] = dict(self.overlay.colors)
+
+            audio_cfg = cfg.setdefault("audio", {})
+            audio_cfg["selected_mic_name"] = self.combo_mic.currentText()
+            audio_cfg["selected_languages"] = self.get_selected_languages()
+
+            with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[Config] Error saving settings: {e}")
+
+    def closeEvent(self, event):
+        self.save_settings()
+        super().closeEvent(event)
 
     def populate_audio_processes(self):
         """Scan active audio sessions."""

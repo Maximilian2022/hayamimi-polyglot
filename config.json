@@ -18,7 +18,10 @@
     "vad_threshold": 0.5
   },
   "translation": {
-    "default_languages": ["ja", "en"],
+    "default_languages": [
+      "ja",
+      "en"
+    ],
     "max_concurrent_languages": 5,
     "models": {
       "multilingual": "mojicast-m2m100-ct2",
@@ -29,6 +32,31 @@
     "theme": "dark",
     "overlay_opacity": 0.82,
     "overlay_max_lines": 4,
-    "click_through_default": false
+    "click_through_default": false,
+    "font_family": "",
+    "font_size": 18,
+    "overlay_width": 840,
+    "overlay_height": 190,
+    "colors": {
+      "self_tag": "#38BDF8",
+      "remote_tag": "#A78BFA",
+      "orig_text": "#FFFFFF",
+      "ja": "#34D399",
+      "en": "#FBBF24",
+      "zh": "#F472B6",
+      "ko": "#A78BFA",
+      "fr": "#60A5FA",
+      "de": "#F87171",
+      "es": "#FB923C",
+      "vi": "#2DD4BF",
+      "trans_default": "#FBBF24"
+    }
+  },
+  "audio": {
+    "selected_mic_name": "システム既定のマイク (Default)",
+    "selected_languages": [
+      "ja",
+      "en"
+    ]
   }
 }
