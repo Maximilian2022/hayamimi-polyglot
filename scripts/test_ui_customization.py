@@ -1,5 +1,8 @@
-from PySide6 import QtWidgets
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from PySide6 import QtWidgets
 from ui.overlay_window import OverlayWindow
 from ui.control_panel import ControlPanel
 
@@ -29,3 +32,4 @@ assert overlay.geometry().height() == 220
 panel.save_settings()
 print("Settings saved successfully!")
 print("ALL TESTS PASSED!")
+

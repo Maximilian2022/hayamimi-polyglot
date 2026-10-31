@@ -39,7 +39,8 @@ def get_desktop_dir() -> Path:
         try:
             out = subprocess.check_output(
                 ["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')"],
-                text=True, creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                text=True, encoding="utf-8", errors="replace",
+                creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
             ).strip()
             if out and Path(out).exists():
                 return Path(out)
@@ -144,13 +145,31 @@ class InstallWorker(QThread):
             venv_dir = self.target_dir / ".venv"
             py_exe = venv_dir / ("Scripts/python.exe" if platform.system() == "Windows" else "bin/python")
 
-            if self.clean_venv or not py_exe.exists():
+            venv_ready = False
+            if self.clean_venv:
                 self.log_signal.emit("🐍 Python 3.14 仮想環境をクリーン再構築中 (--clear)...")
                 self.log_signal.emit("   ※ uv ローカルキャッシュから展開されるため再DLゼロ・1〜2秒で完了")
                 cmd = [uv_exe, "venv", "--clear", str(venv_dir), "--python", "3.14"]
-                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            else:
-                self.log_signal.emit("✓ 既存の Python 3.14 仮想環境を再利用します")
+                try:
+                    subprocess.run(
+                        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, encoding="utf-8", errors="replace"
+                    )
+                    venv_ready = True
+                    self.log_signal.emit("✓ 仮想環境のクリーン再構築が完了しました")
+                except Exception as clear_err:
+                    self.log_signal.emit(f"⚠️ アプリケーション実行中のためクリアをスキップし、既存の仮想環境を健全更新します")
+
+            if not venv_ready:
+                if not py_exe.exists():
+                    self.log_signal.emit("🐍 Python 3.14 仮想環境を新規作成中...")
+                    cmd = [uv_exe, "venv", str(venv_dir), "--python", "3.14"]
+                    subprocess.run(
+                        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, encoding="utf-8", errors="replace"
+                    )
+                else:
+                    self.log_signal.emit("✓ 既存の Python 3.14 仮想環境を再利用・更新します")
 
             self.log_signal.emit(f"✓ Python 3.14 環境準備完了: {py_exe}")
             self.progress_signal.emit(40)
@@ -215,7 +234,10 @@ class InstallWorker(QThread):
                 if not deployed_ok and shutil.which("git"):
                     try:
                         self.log_signal.emit("🔄 git clone による代替取得中...")
-                        subprocess.run(["git", "clone", "https://github.com/Maximilian2022/hayamimi-polyglot.git", str(self.target_dir)], check=True)
+                        subprocess.run(
+                            ["git", "clone", "https://github.com/Maximilian2022/hayamimi-polyglot.git", str(self.target_dir)],
+                            check=True, text=True, encoding="utf-8", errors="replace"
+                        )
                         self.log_signal.emit("✓ git clone による配置が完了しました！")
                     except Exception as g_ex:
                         self.log_signal.emit(f"❌ ファイル取得に失敗しました: {g_ex}")
@@ -224,7 +246,7 @@ class InstallWorker(QThread):
             self.log_signal.emit("📦 依存ライブラリを同期中 (PySide6, sherpa-onnx, ctranslate2)...")
             req_file = self.target_dir / "requirements.txt"
             cmd = [uv_exe, "pip", "install", "-r", str(req_file), "--python", str(py_exe), "--upgrade"]
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
             if res.returncode != 0:
                 self.log_signal.emit(f"⚠️ パッケージインストール警告: {res.stdout}")
             self.log_signal.emit("✓ 依存ライブラリの同期完了！")
@@ -237,8 +259,8 @@ class InstallWorker(QThread):
             # Check local models cache
             local_cache_candidates = [
                 script_dir / "models",
-                Path("E:/hayamimi/models"),
-                Path.home() / "hayamimi/models"
+                Path("D:/hayamimi4b/models"),
+                Path.home() / "hayamimi4b/models"
             ]
             for cache in local_cache_candidates:
                 if cache.exists() and cache.resolve() != models_dir.resolve():
@@ -293,7 +315,11 @@ class InstallWorker(QThread):
                         f'$s.Save()'
                     )
                     try:
-                        subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+                        subprocess.run(
+                            ["powershell", "-NoProfile", "-Command", ps_cmd],
+                            check=True, text=True, encoding="utf-8", errors="replace",
+                            creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                        )
                         self.log_signal.emit(f"✓ Windows ショートカット作成完了: {shortcut_path}")
                     except Exception as ex:
                         self.log_signal.emit(f"⚠️ ショートカット作成エラー: {ex}")
@@ -369,8 +395,10 @@ class InstallerWindow(QMainWindow):
         group_models_layout.setContentsMargins(12, 10, 12, 12)
         group_models_layout.setSpacing(6)
 
+        init_path = Path(self.txt_path.text())
+        has_existing_venv = (init_path / ".venv").exists()
         self.chk_clean_venv = QCheckBox("🔄 Python 3.14 仮想環境をクリーン再構築する (推奨: 古い残骸を排除)")
-        self.chk_clean_venv.setChecked(True)
+        self.chk_clean_venv.setChecked(not has_existing_venv)
         self.chk_clean_venv.setObjectName("chkClean")
         lbl_clean_sub = QLabel("  • uv ローカルキャッシュを活用するため、再DLゼロ・約1〜2秒で健全な環境を復元")
         lbl_clean_sub.setObjectName("lblSub")

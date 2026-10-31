@@ -117,11 +117,30 @@ class ControlPanel(QtWidgets.QWidget):
                 background-color: #1E293B;
                 border: 1px solid #334155;
                 border-radius: 6px;
-                padding: 6px;
+                padding: 5px 8px;
                 color: #F8FAFC;
             }
             QComboBox::drop-down {
-                border: none;
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 24px;
+                border-left: 1px solid #334155;
+            }
+            QComboBox::down-arrow {
+                image: none;
+                border-top: 5px solid #94A3B8;
+                border-left: 4px solid transparent;
+                border-right: 4px solid transparent;
+                width: 0;
+                height: 0;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1E293B;
+                color: #F8FAFC;
+                selection-background-color: #3B82F6;
+                selection-color: #FFFFFF;
+                border: 1px solid #334155;
+                outline: none;
             }
             QCheckBox {
                 color: #E2E8F0;
@@ -278,12 +297,12 @@ class ControlPanel(QtWidgets.QWidget):
         custom_layout = QtWidgets.QVBoxLayout(grp_sub_custom)
         custom_layout.setSpacing(6)
 
-        # Font selection
+        # Font selection (Pure Dropdown)
         row_font = QtWidgets.QHBoxLayout()
         row_font.addWidget(QtWidgets.QLabel("フォント:"))
         self.combo_font = QtWidgets.QComboBox()
-        self.combo_font.setEditable(True)
-        self.combo_font.setInsertPolicy(QtWidgets.QComboBox.InsertPolicy.NoInsert)
+        self.combo_font.setEditable(False)
+        self.combo_font.setMaxVisibleItems(16)
         self.combo_font.addItem("システム標準 (Meiryo / Yu Gothic)", "")
         self.populate_fonts()
         self.combo_font.currentTextChanged.connect(self.on_font_changed)

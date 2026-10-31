@@ -34,9 +34,9 @@
     "overlay_max_lines": 4,
     "click_through_default": false,
     "font_family": "",
-    "font_size": 18,
-    "overlay_width": 840,
-    "overlay_height": 190,
+    "font_size": 24,
+    "overlay_width": 1150,
+    "overlay_height": 220,
     "colors": {
       "self_tag": "#38BDF8",
       "remote_tag": "#A78BFA",

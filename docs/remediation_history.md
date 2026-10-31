@@ -146,4 +146,22 @@
     - **文字色設定**: 発言者（自分・相手・本文）および全翻訳言語の横にカラーボタンを配置。クリックで OS 標準のカラーパレット（`QColorDialog`）が開き、自由な色を即座に適用可能。「🔄 標準色に戻す」リセット機能も完備。
     - **設定永続化**: `config.json` への自動保存（`save_settings()`）と次回起動時の完全復元（`load_settings()`）を実装。フォント、サイズ、エリア幅・高、透明度、文字色、前回選択マイク、選択言語がすべて次回起動時に保持される。
 
+## 17. アップデータ実行時のプロセスロック・エンコーディングエラー修正およびフォント選択の純粋ドロップダウン化
+- **内容**:
+  - **アップデータエラー解決**:
+    - 現象: コントロールパネルの「⚙️ モデル追加/更新」ボタンを押してセットアップを開始した際、`Command '['...uv.EXE', 'venv', '--clear', ...] returned non-zero exit status 2` および `UnicodeDecodeError: 'cp932' codec can't decode byte 0x82` が発生。
+    - 原因:
+      1. 親プロセスの `main.py` が `.venv` 内の `python.exe` を実行中（ファイルロック中）のため、Windows OS により `--clear` によるファイル削除が `PermissionError` で拒絶されていた。
+      2. `installer_gui.py` 内の `subprocess.run` が Windows の既定エンコーディング（CP932）で出力を読み取ろうとしたため、`uv` の UTF-8 出力でデコード例外が発生。
+    - 対処:
+      1. `installer_gui.py` にて `clean_venv` 実行時にプロセスロック等でクリア失敗した場合は例外停止せず、安全に「既存の仮想環境を健全更新」するフォールバックを実装。
+      2. 既存環境のパスで起動された場合は「クリーン再構築」チェックボックスのデフォルトを OFF に設定。
+      3. 全 `subprocess` 呼び出しに `text=True, encoding="utf-8", errors="replace"` を徹底付与し、いかなる日本語・記号出力でもクラッシュしないよう防護。
+      4. `local_cache_candidates` に残存していた `E:/hayamimi/models` を `D:/hayamimi4b/models` に完全置換。
+  - **フォント選択のドロップダウン化**:
+    - `ui/control_panel.py`:
+      - ユーザー要望に基づき、フォント選択コンボボックス（`self.combo_font`）を `setEditable(False)` に変更し、手入力テキストボックス型から純粋なクリック展開式「ドロップダウン（Dropdown）」に変更。
+      - `QComboBox` のスタイルシートを拡張し、Windows 11 上で視認性の高いドロップダウン矢印（▼）と選択ハイライトリスト表示を適用。
+
+
 
