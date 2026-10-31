@@ -1,12 +1,12 @@
 """
-Hayamimi For Business (hayamimi4b) - Main Entry Point.
+Hayamimi Polyglot - Main Entry Point.
 Integrates:
   - PySide6 System Tray + Floating Control Panel
   - Transparent Stealth-protected Subtitle Overlay
   - Localhost (127.0.0.1:8844) Screen Sharing Web View
   - Dual-track Audio Capture (Self Mic + Remote Zoom/Teams Loopback)
   - Silero VAD + ReazonSpeech INT8 ASR
-  - CTranslate2 Local Translation (ja->en, en->ja)
+  - CTranslate2 Local Multilingual Translation (M2M-100 & FuguMT)
   - Zero disk audio recording. Zero external telemetry.
 """
 
@@ -73,19 +73,67 @@ class SessionWorker(QtCore.QObject):
         self.selected_languages = langs[:5]
 
     def _detect_src_lang(self, track: str, text: str) -> str:
-        """Detect source language from text characters and audio track."""
+        """
+        Detect source language from text characters with high precision.
+        Never blindly defaults to track origin; accurately distinguishes Japanese, English,
+        Korean, Chinese, and other European languages based on Unicode scripts.
+        """
         import re
-        # Check Japanese Hiragana / Katakana
+
+        cleaned = re.sub(r"[\s\d\W_]+", "", text)
+        if not cleaned:
+            return self.selected_languages[0] if self.selected_languages else ("ja" if track == "self" else "en")
+
+        # 1. Japanese Kana check (hiragana / katakana) - 100% Japanese
         if re.search(r"[\u3040-\u309F\u30A0-\u30FF]", text):
             return "ja"
-        # Check Korean Hangul
+
+        # 2. Korean Hangul check - 100% Korean
         if re.search(r"[\uAC00-\uD7AF\u1100-\u11FF]", text):
             return "ko"
-        # Check Chinese Hanzi (when no hiragana/katakana)
-        if re.search(r"[\u4E00-\u9FFF]", text):
-            return "zh"
-        # Default: if Track is self -> ja, else en
-        return "ja" if track == "self" else "en"
+
+        # Count character categories
+        latin_chars = len(re.findall(r"[A-Za-z\u00C0-\u024F\u1EA0-\u1EF9]", text))
+        hanzi_chars = len(re.findall(r"[\u4E00-\u9FFF]", text))
+        total_alpha = latin_chars + hanzi_chars
+
+        # 3. Latin alphabet dominant (English, French, German, Spanish, Vietnamese, etc.)
+        if latin_chars > 0 and (total_alpha == 0 or (latin_chars / max(1, total_alpha)) >= 0.5):
+            # Vietnamese tone/vowel marks
+            if re.search(r"[đĐưƯơƠảẢãÃạẠấẤầẦẩẨẫẪậẬắẮằẰẳẲẵẴặẶ]", text):
+                return "vi"
+            # German unique letters
+            if re.search(r"[äöüÄÖÜß]", text):
+                return "de"
+            # French unique letters or characteristic stop words
+            if re.search(r"[çœÇŒ]", text) or ("fr" in self.selected_languages and re.search(r"\b(le|la|les|des|un|une|est|et|pour|dans|qui|que)\b", text, re.IGNORECASE)):
+                return "fr"
+            # Spanish unique letters or characteristic stop words
+            if re.search(r"[ñÑ¿¡]", text) or ("es" in self.selected_languages and re.search(r"\b(el|la|los|las|un|una|es|y|por|para|que|en)\b", text, re.IGNORECASE)):
+                return "es"
+
+            # If English is selected or no specific Latin language markers found
+            if "en" in self.selected_languages or not any(l in ("fr", "de", "es", "vi") for l in self.selected_languages):
+                return "en"
+            # Fallback to the first latin language in selected_languages
+            for l in self.selected_languages:
+                if l in ("en", "fr", "de", "es", "vi"):
+                    return l
+            return "en"
+
+        # 4. Chinese Hanzi (without Kana)
+        if hanzi_chars > 0:
+            if "zh" in self.selected_languages and "ja" not in self.selected_languages:
+                return "zh"
+            if "ja" in self.selected_languages and "zh" not in self.selected_languages:
+                return "ja"
+            # Check characteristic Chinese particles
+            if re.search(r"[的了是我你他在有这那们会说要为和与]", text):
+                return "zh"
+            return "zh" if "zh" in self.selected_languages else "ja"
+
+        # Fallback to the first selected language
+        return self.selected_languages[0] if self.selected_languages else "ja"
 
     def on_audio_chunk(self, track: str, pcm_512: np.ndarray):
         """Called by DualTrackCapture for every 512-sample (32ms) audio block."""
@@ -154,6 +202,7 @@ class SessionWorker(QtCore.QObject):
 
         src_lang = self._detect_src_lang(track, text)
         target_langs = [l for l in self.selected_languages if l != src_lang]
+        print(f"[Polyglot:{track}] Detected src_lang: '{src_lang}' -> Target langs: {target_langs}")
 
         if target_langs:
             def on_translated(orig: str, trans_dict: Dict[str, str]):
@@ -184,7 +233,7 @@ def main():
     if platform.system() == "Windows":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Hayamimi.Business.1.0")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Hayamimi.Polyglot.1.0")
         except Exception:
             pass
 

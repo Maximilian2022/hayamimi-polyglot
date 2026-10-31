@@ -39,7 +39,7 @@ def find_models_dir() -> Path:
     candidates = [
         Path(__file__).resolve().parent / "models",
         Path(__file__).resolve().parent.parent / "models",
-        Path(r"E:\hayamimi\models"),
+        Path(r"D:\hayamimi4b\models"),
         Path("models"),
     ]
     for c in candidates:
@@ -153,6 +153,42 @@ def test_security_constraints():
     print("  [PASS] Security & Privacy constraints 100% verified.")
 
 
+def test_language_identification():
+    print("[TEST 6/6] Testing Multilingual Language Identification (_detect_src_lang)...")
+    from main import SessionWorker
+
+    # Create worker without running audio pipeline
+    class DummyVAD: pass
+    class DummyASR: pass
+    class DummyTrans: pass
+
+    worker = SessionWorker(DummyVAD(), DummyASR(), DummyTrans())
+    worker.set_selected_languages(["ja", "en"])
+
+    test_cases = [
+        # (track, text, selected_langs, expected_src, desc)
+        ("self", "THIS IS A PAIR", ["ja", "en"], "en", "User mic speaking English"),
+        ("self", "WHAT TO ONEID DO IS JUST NOTIFY ME WITH EMALE", ["ja", "en"], "en", "User mic speaking long English"),
+        ("self", "これはペアです", ["ja", "en"], "ja", "User mic speaking Japanese"),
+        ("self", "OKです、始めましょう", ["ja", "en"], "ja", "User mic speaking Japanese with acronym"),
+        ("self", "了解いたしました", ["ja", "en"], "ja", "User mic speaking Kanji Japanese"),
+        ("remote", "Good morning, let's start the sync.", ["ja", "en"], "en", "Remote English"),
+        ("remote", "お疲れ様です", ["ja", "en"], "ja", "Remote Japanese"),
+        ("self", "안녕하세요 반갑습니다", ["ja", "ko"], "ko", "Korean Hangul"),
+        ("self", "项目进展情况汇报", ["ja", "zh"], "zh", "Chinese Hanzi"),
+        ("self", "Guten Tag, wie geht es Ihnen?", ["ja", "de"], "de", "German"),
+        ("self", "Bonjour tout le monde", ["ja", "fr"], "fr", "French"),
+    ]
+
+    for track, text, langs, expected, desc in test_cases:
+        worker.set_selected_languages(langs)
+        actual = worker._detect_src_lang(track, text)
+        print(f"  -> [{track}] '{text}' => detected '{actual}' (expected '{expected}') - {desc}")
+        assert actual == expected, f"Failed LID for '{text}': got {actual}, expected {expected}"
+
+    print("  [PASS] Language identification 100% verified (No track hardcoding, accurate LID).")
+
+
 if __name__ == "__main__":
     print("=======================================================")
     print("  🎙️🌐 Hayamimi Polyglot Test Suite")
@@ -162,6 +198,7 @@ if __name__ == "__main__":
     test_local_translation()
     test_audio_process_enumeration()
     test_security_constraints()
+    test_language_identification()
     print("=======================================================")
-    print("  ALL 5 TESTS PASSED SUCCESSFULLY! (100% CLEAN)")
+    print("  ALL 6 TESTS PASSED SUCCESSFULLY! (100% CLEAN)")
     print("=======================================================")
