@@ -17,7 +17,7 @@ sudachipy>=0.6.8
 sudachidict_full>=20240409
 
 # Windows Audio Capture (Non-admin Application Loopback)
-comtypes>=1.4.0
+comtypes>=1.4.17
 pycaw>=20240210
 
 # Desktop UI & Overlay (LGPL / Commercial-friendly PySide6)
