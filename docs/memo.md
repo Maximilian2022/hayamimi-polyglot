@@ -12,6 +12,7 @@
 - [x] **タスクバー＆システムトレイアイコンの動的ステータス色切り替え（待機中: スレート＆シアン、聞き取り中: エメラルドグリーン＆赤色LIVEバッジ）**
 - [x] **コントロールパネルの画面共有ステルス保護対応（起動時 showEvent から完全自動適用）**
 - [x] **GitHub リポジトリの Description、トピック、および README.md への oboroge0/hayamimi Fork クレジット・バッジ明記**
+- [x] **GitHub コミュニティドキュメント整備（Code of Conduct, Contributing, Security Policy 各日本語版、dependabot.yml）**
 
 ## 直近の検証結果
 - **8 言語 ASR 実音声デコードテスト（100% 成功）**:

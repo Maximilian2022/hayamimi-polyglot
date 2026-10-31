@@ -111,3 +111,12 @@ chmod +x start.sh
 - **ベースプロジェクト**: [oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) (MIT License) - 素晴らしい原案・基礎設計に深く感謝いたします。
 - **Hayamimi Polyglot**: 本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が完全に許諾されています。
 
+---
+
+## 🤝 コミュニティ & ガイドライン
+
+- [行動規範 (Code of Conduct)](.github/CODE_OF_CONDUCT.md)
+- [貢献ガイドライン (Contributing Guide)](.github/CONTRIBUTING.md)
+- [セキュリティポリシー (Security Policy)](.github/SECURITY.md)
+- [言語・モデル相関仕様書](docs/languages.md)
+

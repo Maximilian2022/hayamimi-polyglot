@@ -343,6 +343,26 @@
      - Description（About欄）: `Real-time multilingual simultaneous interpretation fork of oboroge0/hayamimi (CPU only, Zero Telemetry, 8 languages)` を設定。
      - Topics: `speech-to-text`, `translation`, `offline`, `multilingual`, `sherpa-onnx`, `ctranslate2`, `pyside6` を登録。
 
+## 18. GitHub コミュニティドキュメントおよび Dependabot の整備
+- **ユーザー要望**:
+  - `GithubのDoc整備を行いたい。`
+  - `Code of conduct、Contributing、Security Policyをそれぞれ日本語で作成してほしい`
+  - `dependabot.ymlを生成してほしい`
+- **改修内容**:
+  1. **`.github/CODE_OF_CONDUCT.md`**:
+     - Contributor Covenant v2.1 に準拠した日本語版の行動規範を新規作成。多様性と包括性、歓迎される行動・受け入れられない行動の基準、違反時の是正措置プロセスを明記。
+  2. **`.github/CONTRIBUTING.md`**:
+     - コントリビューター向けの包括的な日本語貢献ガイドラインを新規作成。
+     - バグ報告・機能提案の手順、Zero Telemetry 厳守原則（音声ディスク保存厳禁、外部通信ゼロ、127.0.0.1 厳格バインド）、uv と Python 3.14 による開発環境セットアップ、`test_polyglot_suite.py` によるテスト必須要件、Conventional Commits 規約を網羅。
+  3. **`.github/SECURITY.md`**:
+     - 企業のコンプライアンス審査に適合する日本語セキュリティポリシーを新規作成。
+     - サポート対象バージョン、セキュリティ 7原則、GitHub Private Vulnerability Reporting を用いた責任ある脆弱性開示・報告手順、対応タイムライン（48時間以内の受領確認）を定義。
+  4. **`.github/dependabot.yml`**:
+     - GitHub 公式構文に基づく Dependabot 設定ファイルを新規作成。
+     - Python pip 依存関係（`requirements.txt`）および GitHub Actions ワークフローを毎週月曜 09:00 (JST) に自動チェックし、セキュリティパッチやライブラリ更新のプルリクエストを自律生成するよう設定。
+  5. **`README.md`**:
+     - 末尾に「コミュニティ & ガイドライン」セクションを追加し、各ドキュメントへのリンクを配置。
+
 
 
 
