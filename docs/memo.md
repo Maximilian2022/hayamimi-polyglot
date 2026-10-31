@@ -15,5 +15,5 @@
 - `sd.WasapiSettings(auto_convert=True)` で Yeti Classic, G FITS, BRIO, Realtek, G533 等すべての WASAPI デバイスが 16000Hz 1ch で直接オープン可能であることを確認済み。
 - ネイティブ周波数からの `resample_linear` は 1ブロックあたり 0.014ms（CPU 負荷 0.04% 未満）。
 - ReazonSpeech Zipformer INT8 モデル等は `D:\hayamimi4b\models` に存在し、`E:\hayamimi-polyglot\models` へのジャンクション作成により `_HERE / "models"` で正常ロード可能。（※別プロジェクト `E:\hayamimi` は一切参照しないよう修正済み）
-- 「モデル追加/更新」ボタン押下時のエラー（`uv venv --clear` のプロセスロック exit status 2 および CP932 UnicodeDecodeError）を解消。アプリ終了・アップデータ起動の安全ハンドオフにより、更新ボタンからでも 100% クリーン再構築が可能に。更新後は自動で最新状態のアプリが再起動。
+- 音声認識されない最大原因であった `core/vad.py` の Silero VAD ONNX 入力キー名不整合（`x` ではなく `input` を渡していたため毎フレーム ValueError で内部例外即死・無音判定になっていた）を特定・修正。入力名自動検出および音響エネルギー（RMS）フォールバックガードを導入し、リアルタイムマイク診断で 198 チャンクの音声検出および日本語 ASR 認識成功を確認。
 - フォント選択コンボボックスを編集可能テキスト型から純粋な「ドロップダウン（Dropdown）」に変更完了。

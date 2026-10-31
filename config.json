@@ -53,7 +53,7 @@
     }
   },
   "audio": {
-    "selected_mic_name": "システム既定のマイク (Default)",
+    "selected_mic_name": "エコー キャンセル スピーカーフォン (Jabra Speak 750)",
     "selected_languages": [
       "ja",
       "en"

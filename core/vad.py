@@ -48,6 +48,11 @@ class SileroVAD:
 
         self.session = ort.InferenceSession(str(model_path), opts, providers=["CPUExecutionProvider"])
         self.threshold = threshold
+
+        # Auto-detect input names (Silero VAD v4 uses 'x', v5 uses 'input', with or without 'sr')
+        model_input_names = [inp.name for inp in self.session.get_inputs()]
+        self._audio_input_name = "x" if "x" in model_input_names else "input"
+        self._needs_sr = "sr" in model_input_names
         self.reset()
 
     def reset(self):
@@ -60,20 +65,27 @@ class SileroVAD:
             return False
 
         x = chunk_512.reshape(1, -1).astype(np.float32)
-        sr = np.array([sample_rate], dtype=np.int64)
 
         inputs = {
-            "input": x,
-            "sr": sr,
+            self._audio_input_name: x,
             "h": self._h,
             "c": self._c,
         }
+        if self._needs_sr:
+            inputs["sr"] = np.array([sample_rate], dtype=np.int64)
 
         try:
-            out, h, c = self.session.run(None, inputs)
+            outputs = self.session.run(None, inputs)
+            out, h, c = outputs[0], outputs[1], outputs[2]
             self._h = h
             self._c = c
-            prob = float(out[0][0])
-            return prob >= self.threshold
-        except Exception:
-            return False
+            prob = float(out.flatten()[0])
+            if prob >= self.threshold:
+                return True
+            # Energy fallback guard for voice transients (RMS > 0.03)
+            rms = float(np.sqrt(np.mean(chunk_512**2)))
+            return rms > 0.035
+        except Exception as ex:
+            # Fallback to pure energy VAD if model inference fails
+            rms = float(np.sqrt(np.mean(chunk_512**2)))
+            return rms > 0.025
