@@ -395,10 +395,8 @@ class InstallerWindow(QMainWindow):
         group_models_layout.setContentsMargins(12, 10, 12, 12)
         group_models_layout.setSpacing(6)
 
-        init_path = Path(self.txt_path.text())
-        has_existing_venv = (init_path / ".venv").exists()
         self.chk_clean_venv = QCheckBox("🔄 Python 3.14 仮想環境をクリーン再構築する (推奨: 古い残骸を排除)")
-        self.chk_clean_venv.setChecked(not has_existing_venv)
+        self.chk_clean_venv.setChecked(True)
         self.chk_clean_venv.setObjectName("chkClean")
         lbl_clean_sub = QLabel("  • uv ローカルキャッシュを活用するため、再DLゼロ・約1〜2秒で健全な環境を復元")
         lbl_clean_sub.setObjectName("lblSub")

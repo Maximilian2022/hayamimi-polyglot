@@ -179,7 +179,7 @@ class OverlayWindow(QtWidgets.QWidget):
         header_layout = QtWidgets.QHBoxLayout(self.header)
         header_layout.setContentsMargins(0, 0, 0, 0)
 
-        self.lbl_title = QtWidgets.QLabel("Hayamimi Business Subtitles")
+        self.lbl_title = QtWidgets.QLabel("Hayamimi Polyglot Subtitles")
         self.lbl_title.setStyleSheet("color: #94A3B8; font-size: 11px; font-weight: bold;")
         header_layout.addWidget(self.lbl_title)
         header_layout.addStretch()

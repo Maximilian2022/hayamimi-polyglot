@@ -192,7 +192,7 @@ def main():
     app.setQuitOnLastWindowClosed(False)
 
     print("=======================================================")
-    print("  Hayamimi For Business (hayamimi4b)")
+    print("  🎙️🌐 Hayamimi Polyglot")
     print("  Status: 100% Offline / Localhost Bound (127.0.0.1:8844)")
     print("  Security: Zero audio recording to disk. Non-admin.")
     print("=======================================================")

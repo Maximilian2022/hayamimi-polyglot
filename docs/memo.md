@@ -15,5 +15,5 @@
 - `sd.WasapiSettings(auto_convert=True)` で Yeti Classic, G FITS, BRIO, Realtek, G533 等すべての WASAPI デバイスが 16000Hz 1ch で直接オープン可能であることを確認済み。
 - ネイティブ周波数からの `resample_linear` は 1ブロックあたり 0.014ms（CPU 負荷 0.04% 未満）。
 - ReazonSpeech Zipformer INT8 モデル等は `D:\hayamimi4b\models` に存在し、`E:\hayamimi-polyglot\models` へのジャンクション作成により `_HERE / "models"` で正常ロード可能。（※別プロジェクト `E:\hayamimi` は一切参照しないよう修正済み）
-- 「モデル追加/更新」ボタン押下時のエラー（`uv venv --clear` のプロセスロック exit status 2 および CP932 UnicodeDecodeError）を解消。既存環境使用中時の安全更新フォールバックと `encoding="utf-8"` を徹底。
+- 「モデル追加/更新」ボタン押下時のエラー（`uv venv --clear` のプロセスロック exit status 2 および CP932 UnicodeDecodeError）を解消。アプリ終了・アップデータ起動の安全ハンドオフにより、更新ボタンからでも 100% クリーン再構築が可能に。更新後は自動で最新状態のアプリが再起動。
 - フォント選択コンボボックスを編集可能テキスト型から純粋な「ドロップダウン（Dropdown）」に変更完了。

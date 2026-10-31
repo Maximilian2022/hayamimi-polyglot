@@ -58,7 +58,7 @@ class ControlPanel(QtWidgets.QWidget):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("Hayamimi Business - コントロールパネル")
+        self.setWindowTitle("Hayamimi Polyglot - コントロールパネル")
         self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
 
@@ -182,7 +182,7 @@ class ControlPanel(QtWidgets.QWidget):
 
         # 1. Header (Title + Pin + Stealth Status)
         header = QtWidgets.QHBoxLayout()
-        title = QtWidgets.QLabel("🎙️ Hayamimi Business")
+        title = QtWidgets.QLabel("🎙️🌐 Hayamimi Polyglot")
         title.setStyleSheet("font-size: 16px; font-weight: bold; color: #38BDF8;")
         header.addWidget(title)
 
@@ -767,16 +767,34 @@ class ControlPanel(QtWidgets.QWidget):
 
     def open_updater(self):
         """Launch the setup/updater GUI to download extra models or update version."""
-        import subprocess
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "モデル追加 / アップデート",
+            "AIモデルの追加ダウンロードや環境のクリーン再構築を行うため、現在のアプリを終了してアップデータを起動します。\n\n（※設定は自動保存され、更新完了後に自動で再起動されます）\n\nアップデータを起動しますか？",
+            QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
+            QtWidgets.QMessageBox.StandardButton.Yes,
+        )
+        if reply != QtWidgets.QMessageBox.StandardButton.Yes:
+            return
+
+        self.save_settings()
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         if platform.system() == "Windows":
             setup_script = os.path.join(root, "setup.ps1")
             if os.path.isfile(setup_script):
-                subprocess.Popen(["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", setup_script], cwd=root)
+                CREATE_NEW_PROCESS_GROUP = 0x00000200
+                DETACHED_PROCESS = 0x00000008
+                subprocess.Popen(
+                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", setup_script],
+                    cwd=root,
+                    creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                )
         else:
             setup_script = os.path.join(root, "setup.sh")
             if os.path.isfile(setup_script):
-                subprocess.Popen(["bash", setup_script], cwd=root)
+                subprocess.Popen(["bash", setup_script], cwd=root, start_new_session=True)
+
+        QtWidgets.QApplication.quit()
 
     def append_transcript_line(self, track: str, text: str, translations: Optional[Dict[str, str] | str] = None):
         tag = "自分" if track == "self" else "相手"
@@ -800,7 +818,7 @@ class SystemTrayApp:
         # Standard icon or fallback
         icon = panel.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaVolume)
         self.tray.setIcon(icon)
-        self.tray.setToolTip("Hayamimi Business - 会議文字起こし & 翻訳")
+        self.tray.setToolTip("Hayamimi Polyglot - リアルタイム多言語同時並行通訳")
 
         # Tray menu
         menu = QtWidgets.QMenu()

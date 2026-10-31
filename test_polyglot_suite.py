@@ -155,7 +155,7 @@ def test_security_constraints():
 
 if __name__ == "__main__":
     print("=======================================================")
-    print("  Hayamimi For Business (hayamimi4b) Test Suite")
+    print("  🎙️🌐 Hayamimi Polyglot Test Suite")
     print("=======================================================")
     test_dictionary_and_hotwords()
     test_vad_and_asr()

@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 import uvicorn
 
 
-app = FastAPI(title="Hayamimi Business View", docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="Hayamimi Polyglot View", docs_url=None, redoc_url=None, openapi_url=None)
 
 # Restrict CORS to self-origin only
 app.add_middleware(
@@ -112,7 +112,7 @@ async def browser_view(request: Request):
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>Hayamimi Business - リアルタイム会議字幕・翻訳</title>
+  <title>Hayamimi Polyglot - リアルタイム多言語同時並行通訳</title>
   <style>
     :root {
       --bg: #0F172A;
@@ -212,7 +212,7 @@ async def browser_view(request: Request):
 <body>
   <div class="header">
     <div class="title">
-      <span>🎙️ Hayamimi Business</span>
+      <span>🎙️🌐 Hayamimi Polyglot</span>
       <span class="badge">● リアルタイム会議接続中 (127.0.0.1)</span>
     </div>
     <div class="actions">
