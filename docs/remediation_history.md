@@ -176,7 +176,16 @@
     - **実機検証結果**:
       - 修正後のリアルタイムマイク診断において、310 チャンク中 198 チャンクの音声区間（`[SPEECH]`）を正常検出し、ASR による文字起こし（日本語テキスト出力）が 100% 成功することを確認。
 
-- 2026-10-31: 言語・モデル相関仕様書（docs/languages.md）の策定
+- 2026-10-31: 日本語 ASR の ReazonSpeech 固定化（Hotwords & ビジネス辞書フル活用）
+  - **背景・ユーザー要望**:
+    - Instant Hotwords（アジェンダからの専門用語・人名バイアス注入）およびビジネス辞書（上場企業名・SudachiDict）の恩恵を最大化するため、日本語の音声聞き取りは ReazonSpeech Zipformer に固定することを要求。
+  - **改修内容**:
+    - `core/asr_engine.py`:
+      - `transcribe_pcm` のルーティングを改修。日本語発話（ひらがな・カタカナ含有）と判定された場合、ReazonSpeech Zipformer を確実に呼び出すように固定。
+      - 英語は NVIDIA NeMo Parakeet TDT v2、中国語・韓国語は SenseVoice Small へルーティングされるハイブリッド体制を維持。
+    - `docs/languages.md`:
+      - 日本語の ASR 担当を「ReazonSpeech Zipformer（Hotwords & 辞書特化）」として正式更新。
+
   - **背景・ユーザー要望**:
     - 音声聞き取り可能言語、翻訳可能言語、およびそれぞれを担当する AI モデルの相関関係を体系的に文書化することを要求。
   - **成果物**:

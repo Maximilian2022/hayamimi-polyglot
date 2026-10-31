@@ -10,7 +10,7 @@ UI（コントロールパネル）で選択可能な主要 8 言語における
 
 | 言語 | 国旗 | 音声聞き取り (ASR) 担当モデル | ASR 推論ランタイム | 翻訳 (NMT) 担当モデル | NMT 推論ランタイム |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| **日本語** (`ja`) | 🇯🇵 | **SenseVoice Small** / ReazonSpeech | sherpa-onnx (CPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
+| **日本語** (`ja`) | 🇯🇵 | **ReazonSpeech Zipformer** (辞書・Hotwords特化) | sherpa-onnx (CPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
 | **英語** (`en`) | 🇺🇸 | **Parakeet TDT 0.6B** (SOTA特化) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
 | **中国語** (`zh`) | 🇨🇳 | **SenseVoice Small** (ネイティブ) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
 | **韓国語** (`ko`) | 🇰🇷 | **SenseVoice Small** (ネイティブ) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
@@ -29,29 +29,28 @@ CPU のみで動作し、ノート PC のファンを回さない低負荷（INT
 [マイク / 会議音声] ──> [Silero VAD (ONNX)]
                               │ (発声検知・無音時CPU停止)
                               ▼
-                ┌─────────────┴─────────────┐
-                ▼                           ▼
-      【アジア圏言語】                 【欧米圏言語】
-     SenseVoice Small             Parakeet TDT 0.6B
-   (日・中・韓・広東語・英)      (英・仏・独・西など25言語)
-                │                           │
-                └─────────────┬─────────────┘
-                              ▼
-                     【東南アジア圏言語】
-                       Zipformer-vi
-                    (ベトナム語声調特化)
+                ┌─────────────┼─────────────┐
+                ▼                           ▼                             ▼
+         【日本語 (ja)】              【英語・欧米圏】              【中・韓・アジア圏】
+      ReazonSpeech Zipformer        Parakeet TDT 0.6B              SenseVoice Small
+     (Hotwords & 辞書固定)       (SOTA英語・欧州25言語)           (中国語・韓国語ネイティブ)
+                                            │
+                                            ▼
+                                  【東南アジア (越語)】
+                                      Zipformer-vi
+                                    (ベトナム語声調特化)
 ```
 
-### ① SenseVoice Small (Alibaba Tongyi Lab)
-- **担当言語**: 日本語 (`ja`), 中国語 (`zh`: 普通話・広東語), 韓国語 (`ko`), 英語 (`en`)
-- **推論エンジン**: `sherpa-onnx` (`from_sense_voice`)
-- **サイズ**: 約 240 MB (INT8)
-- **処理速度**: RTF < 0.05 (1秒の音声を約20msでデコード)
+### ① ReazonSpeech Zipformer (Reazon Human Interaction Lab) - 【日本語メイン固定】
+- **担当言語**: 日本語 (`ja`) 固定
+- **推論エンジン**: `sherpa-onnx` (`from_transducer`)
+- **サイズ**: 約 250 MB (INT8)
 - **特徴**:
-  - アジア系言語の音声認識精度が極めて高く、漢字変換や数字正規化（ITN）が美しい。
-  - 音響イベント（拍手、咳、BGM）の自動フィルタリング機能を内包。
+  - 日本語のビジネス会議における **メイン固定モデル**。
+  - アジェンダや資料から抽出した社内用語・プロジェクト名・人名をデコード時に動的注入する「**Instant Hotwords**（ホットワードバイアス）」に完全対応。
+  - 金融庁EDINETの全上場企業名や SudachiDict によるビジネス辞書置換が最も相性良く機能。
 
-### ② Parakeet TDT 0.6B (NVIDIA NeMo)
+### ② Parakeet TDT 0.6B (NVIDIA NeMo) - 【英語・欧米圏メイン】
 - **担当言語**:
   - v2: 英語 (`en`) 特化
   - v3: 英語 (`en`), フランス語 (`fr`), ドイツ語 (`de`), スペイン語 (`es`), イタリア語 (`it`) など欧州 25 言語
@@ -63,7 +62,16 @@ CPU のみで動作し、ノート PC のファンを回さない低負荷（INT
   - 英語ネイティブの早口会話、ビジネス略語、スラング、句読点、大文字小文字の再現性が世界最高水準（SOTA）。
   - **※完全 CPU 動作**: NVIDIA 製アーキテクチャですが、INT8 最適化により GPU/CUDA 不要・Intel Core i5 / AMD Ryzen CPU のみで軽快に動作。
 
-### ③ Zipformer-vi 30M (Next-gen Kaldi / sherpa-onnx)
+### ③ SenseVoice Small (Alibaba Tongyi Lab) - 【中国語・韓国語・アジア圏】
+- **担当言語**: 中国語 (`zh`: 普通話・広東語), 韓国語 (`ko`), アジア圏多言語
+- **推論エンジン**: `sherpa-onnx` (`from_sense_voice`)
+- **サイズ**: 約 240 MB (INT8)
+- **処理速度**: RTF < 0.05 (1秒の音声を約20msでデコード)
+- **特徴**:
+  - 中国語・韓国語などアジア系言語の音声認識精度が極めて高く、漢字変換や数字正規化（ITN）が美しい。
+  - 音声の言語判定（LID）プローブとしても機能。
+
+### ④ Zipformer-vi 30M (Next-gen Kaldi / sherpa-onnx) - 【ベトナム語専用】
 - **担当言語**: ベトナム語 (`vi`) 専用
 - **推論エンジン**: `sherpa-onnx` (`from_transducer`)
 - **サイズ**: 約 35 MB (INT8)
@@ -71,15 +79,6 @@ CPU のみで動作し、ノート PC のファンを回さない低負荷（INT
 - **特徴**:
   - ベトナム語の複雑な 6 つの声調と母音を高精度に識別するために学習された超軽量モデル。
   - 容量がわずか 35MB 前後と極めて小さく、必要な時だけ即座に起動可能。
-
-### ④ ReazonSpeech Zipformer (Reazon Human Interaction Lab)
-- **担当言語**: 日本語 (`ja`), 英語 (`en`)
-- **推論エンジン**: `sherpa-onnx` (`from_transducer`)
-- **サイズ**: 約 250 MB (INT8)
-- **特徴**:
-  - 日本語の放送音声で学習された軽量モデル。
-  - アジェンダから抽出した専門用語や人名をデコード時に動的注入する「Instant Hotwords」機構に対応。
-  - 高精度モード OFF 時の省メモリ・軽量フォールバックとして常備。
 
 ---
 
@@ -115,3 +114,4 @@ Hayamimi Polyglot の基本原則である **「3〜5年前のノートPCのCPU�
    - 日常的な「日本語 🇯🇵 ＋ 英語 🇺🇸」の会議中は、SenseVoice と Parakeet のみがメモリに常駐。RAM 消費は数百MB、CPU 使用率は 5% 未満に抑えられます。
 3. **オンデマンド即時呼び出し**:
    - 会議設定で特定の言語（例: 越語 🇻🇳）がチェックされた瞬間、バックグラウンドで該当モデル（約35MB）がスッと起動し、通訳パイプラインに合流します。
+

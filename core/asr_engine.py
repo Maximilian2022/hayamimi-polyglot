@@ -176,11 +176,10 @@ class BusinessASREngine:
     def transcribe_pcm(self, pcm_16k_mono: np.ndarray, hint_lang: Optional[str] = None) -> str:
         """
         Transcribe a 16kHz float32 mono audio segment.
-        When high_accuracy_mode is ON:
-          - Uses SenseVoice Small for ultra-fast initial multilingual recognition.
-          - If language is English (or Latin-heavy), routes to Parakeet TDT v2 for SOTA English accuracy.
-          - For other languages (Japanese, Chinese, Korean), outputs SenseVoice SOTA text.
-        Falls back to ReazonSpeech when models are unavailable or mode is OFF.
+        Architecture:
+          - Japanese (ja): Strictly fixed to ReazonSpeech (Hotwords & Business Dictionary enabled).
+          - English (en): Routed to NVIDIA NeMo Parakeet TDT v2 for SOTA accuracy.
+          - Chinese (zh) / Korean (ko): Routed to SenseVoice Small.
         """
         if len(pcm_16k_mono) == 0:
             return ""
@@ -189,36 +188,54 @@ class BusinessASREngine:
 
         raw_text = ""
 
-        # --- High Accuracy Pipeline (SenseVoice + Parakeet TDT v2) ---
+        # --- High Accuracy Pipeline ---
         if self.high_accuracy_mode and (self.sense_voice_recognizer or self.parakeet_recognizer):
-            # 1. SenseVoice for multi-lingual detection & base transcript
+            # 1. Quick initial probe via SenseVoice to identify language script
+            probe_text = ""
             if self.sense_voice_recognizer:
                 try:
                     stream = self.sense_voice_recognizer.create_stream()
                     stream.accept_waveform(16000, pcm_16k_mono)
                     self.sense_voice_recognizer.decode_stream(stream)
-                    raw_text = stream.result.text.strip()
+                    probe_text = stream.result.text.strip()
                 except Exception as ex:
                     print(f"[ASR] SenseVoice decode error: {ex}")
 
-            # Check if recognized text is Latin / English dominant
-            latin_chars = len(re.findall(r"[A-Za-z]", raw_text))
-            cjk_chars = len(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", raw_text))
+            # Check scripts in probe text
+            has_japanese = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", probe_text)) or (hint_lang == "ja")
+            has_hangul = bool(re.search(r"[\uAC00-\uD7AF\u1100-\u11FF]", probe_text)) or (hint_lang == "ko")
+            latin_chars = len(re.findall(r"[A-Za-z]", probe_text))
+            cjk_chars = len(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]", probe_text))
             is_english = (latin_chars > 0 and latin_chars >= cjk_chars) or (hint_lang == "en")
 
-            # 2. If English and Parakeet TDT v2 is available -> decode with Parakeet for SOTA accuracy
-            if is_english and self.parakeet_recognizer:
+            # Route A: Japanese -> Fixed to ReazonSpeech for Hotwords Biasing & Business Dictionary
+            if has_japanese and self.recognizer:
+                try:
+                    rz_stream = self.recognizer.create_stream()
+                    rz_stream.accept_waveform(16000, pcm_16k_mono)
+                    self.recognizer.decode_stream(rz_stream)
+                    raw_text = rz_stream.result.text.strip()
+                except Exception as rz_ex:
+                    print(f"[ASR] Reazon decode error: {rz_ex}")
+                    raw_text = probe_text  # Fallback to probe text
+
+            # Route B: English -> Parakeet TDT v2 for SOTA English accuracy
+            elif is_english and self.parakeet_recognizer:
                 try:
                     p_stream = self.parakeet_recognizer.create_stream()
                     p_stream.accept_waveform(16000, pcm_16k_mono)
                     self.parakeet_recognizer.decode_stream(p_stream)
                     p_text = p_stream.result.text.strip()
-                    if p_text:
-                        raw_text = p_text
+                    raw_text = p_text if p_text else probe_text
                 except Exception as p_ex:
                     print(f"[ASR] Parakeet decode error: {p_ex}")
+                    raw_text = probe_text
 
-            # 3. If SenseVoice didn't produce text and Parakeet wasn't called, fallback to Reazon
+            # Route C: Korean, Chinese or fallback -> SenseVoice
+            else:
+                raw_text = probe_text
+
+            # Final safety fallback to Reazon if nothing recognized
             if not raw_text and self.recognizer:
                 try:
                     rz_stream = self.recognizer.create_stream()
