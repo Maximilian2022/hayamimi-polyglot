@@ -32,3 +32,10 @@
   - `setup.ps1` / `setup.sh`: 仮想環境構築時のターゲット Python バージョンを `3.12` から `3.14` に更新。
   - Python 3.14 環境（CPython 3.14.10）で `.venv` をクリーン再構築し、`test_polyglot_suite.py` の全5テスト（Hotwords, VAD/ASR, CTranslate2多言語翻訳, Windows Loopback, セキュリティ制約）が **100% PASS** することを確認。ホストOSの既存Python環境に干渉されない完全な隔離動作を実証。
 
+## 5. setup.ps1 ローカル直接実行時のスクリプトパス解決エラー修正
+- **内容**:
+  - `setup.ps1`:
+    - 関数 `Get-SmartInstallPath` や GUI イベントハンドラ内で `$MyInvocation.MyCommand.Path` を直接呼び出していたため、PowerShell の仕様により関数スコープでは `.Path` が `$null` となり `Split-Path` で引数バインド例外が発生していた問題を解消。
+    - スクリプト最上位スコープにて `$ScriptDirectory`（`$PSScriptRoot` 優先、フォールバックとして `$PSCommandPath` / `Get-Location`）を確実に定義・保持する設計に変更。
+    - ローカルからの直接実行（`.\setup.ps1`）および Web ワンライナー実行（`irm ... | iex`）の双方で例外なく安全にディレクトリ判定・ファイルコピーが行われるように改修。
+

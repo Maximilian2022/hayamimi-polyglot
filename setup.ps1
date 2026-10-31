@@ -28,14 +28,22 @@ Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
 
+# Determine script directory reliably (supporting local execution and PSScriptRoot)
+$ScriptDirectory = if ($PSScriptRoot) {
+    $PSScriptRoot
+} elseif ($MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    (Get-Location).Path
+}
+
 # ------------------------------------------------------------------------------
 # 1. Cloud Drive (OneDrive / Google Drive) Detection Logic
 # ------------------------------------------------------------------------------
 function Get-SmartInstallPath {
-    # If existing repo directory is being run from, use current parent
-    $currentDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-    if (Test-Path (Join-Path $currentDir "core\asr_engine.py")) {
-        return $currentDir
+    # If existing repo directory is being run from, use that directory
+    if ($ScriptDirectory -and (Test-Path (Join-Path $ScriptDirectory "core\asr_engine.py"))) {
+        return $ScriptDirectory
     }
 
     $docs = [Environment]::GetFolderPath("MyDocuments")
@@ -305,7 +313,7 @@ $btnInstall.Add_Click({
             Append-Log "Python 3.14 環境準備完了: $pyExe"
 
             # 3. Copy project files if installing to a new directory
-            $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+            $sourceDir = $ScriptDirectory
             if ($sourceDir -and (Test-Path (Join-Path $sourceDir "core\asr_engine.py")) -and ($sourceDir -ne $targetDir)) {
                 Append-Log "プログラムファイルを配置中..."
                 Copy-Item -Path (Join-Path $sourceDir "core") -Destination (Join-Path $targetDir "core") -Recurse -Force
