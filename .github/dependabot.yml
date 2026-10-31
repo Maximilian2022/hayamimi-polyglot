@@ -1,25 +1,10 @@
 # Dependabot configuration for Hayamimi Polyglot
-# Automatically checks for security vulnerabilities and dependency updates
+# Updated to modern Dependabot v2 schema with Grouped Version Updates
 
 version: 2
 updates:
-  # 1. Python pip dependencies (requirements.txt)
+  # Python pip dependencies (requirements.txt)
   - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "Asia/Tokyo"
-    open-pull-requests-limit: 10
-    commit-message:
-      prefix: "chore(deps)"
-    labels:
-      - "dependencies"
-      - "python"
-
-  # 2. GitHub Actions workflows (if added)
-  - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
@@ -28,7 +13,12 @@ updates:
       timezone: "Asia/Tokyo"
     open-pull-requests-limit: 5
     commit-message:
-      prefix: "chore(ci)"
+      prefix: "chore(deps)"
     labels:
       - "dependencies"
-      - "github-actions"
+      - "python"
+    # Group minor and patch updates into a single cohesive PR to prevent spam
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
