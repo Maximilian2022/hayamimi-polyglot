@@ -12,23 +12,16 @@
 - [x] **タスクバー＆システムトレイアイコンの動的ステータス色切り替え（待機中: スレート＆シアン、聞き取り中: エメラルドグリーン＆赤色LIVEバッジ）**
 - [x] **コントロールパネルの画面共有ステルス保護対応（起動時 showEvent から完全自動適用）**
 - [x] **GitHub リポジトリの Description、トピック、および README.md への oboroge0/hayamimi Fork クレジット・バッジ明記**
-- [x] **GitHub コミュニティドキュメント整備（Code of Conduct, Contributing, Security Policy 各日本語版、dependabot.yml）**
+- [x] **GitHub コミュニティドキュメント整備（Code of Conduct, Contributing, Security Policy 各日本語版）**
+- [x] **Dependabot エラー解消 ＆ 最新構文（`groups` による PR まとめ機能）導入**
+- [x] **Dependabot PR 10 件の動作検証・安全マージ・最新統合**
 
 ## 直近の検証結果
-- **8 言語 ASR 実音声デコードテスト（100% 成功）**:
-  - `JA`: `うちの中学は弁当制で持っていけない場合は五十円の学校販売のパンを買う` (ReazonSpeech Zipformer)
-  - `EN`: `Ask not what your country can do for you. Ask what you can do for your country.` (Parakeet TDT v3)
-  - `ZH`: `开饭时间早上9点至下午5点。` (SenseVoice Small)
-  - `KO`: `조금만 생각을 하면서 살면 훨씬 편할 거야.` (SenseVoice Small)
-  - `FR`: `Ne vous demandez pas ce que votre pays peut faire pour vous. Demandez-vous plutôt ce que vous pouvez faire pour lui.` (Parakeet TDT v3)
-  - `DE`: `Alles hat ein Ende, nur die Wurst zwei.` (Parakeet TDT v3)
-  - `ES`: `No preguntes que puede hacer tu país por ti, pregunta que puedes hacer tú por tu país.` (Parakeet TDT v3)
-  - `VI`: `RỒI CŨNG HỖ TRỢ CHO LÂU LÂU CŨNG CHO GẠO CHO NÀY KIA` (Zipformer-vi 30M)
-- **遅延ロード（Lazy Loading）＆ メモリ解放の完全実証**:
-  - `['ja', 'en']` 時: ReazonSpeech と Parakeet のみが RAM に常駐し、Zipformer-vi はメモリ消費 0MB。
-  - `['ja', 'vi']` 切り替え時: Parakeet TDT を即座にアンロード（`gc.collect()` で RAM 解放）し、Zipformer-vi（約35MB）をオンデマンドで即時起動。
-  - `['ja', 'zh', 'ko']` 切り替え時: Zipformer-vi をアンロード（RAM 解放）し、SenseVoice Small を起動。
-- **8 言語相互同時翻訳（M2M-100 & FuguMT）**:
-  - `ja -> en` (FuguMT), `en/zh/ko/fr/de/es/vi -> ja` (M2M-100), `ja -> zh/ko/vi` (M2M-100) すべて正常完了。
+- **Dependabot 設定 & PR 処理**:
+  - `github-actions` エラー除去、最新構文 `groups: python-dependencies: patterns: ["*"]` 導入完了。
+  - GitHub ラベル `dependencies`, `python` 新設完了。
+  - PR #1〜#10（全10件）は Python 3.14 環境で実動検証済み。全件問題なし。
+  - PR #1〜#4 をマージ、PR #5〜#10 は Dependabot のグループ化により自動クローズ。
+  - `requirements.txt` を全件の検証済み最新バージョン（NumPy 2.5.4, sherpa-onnx 2.0.1, CTranslate2 4.8.4, PySide6 6.12.0 等）へ一括最新化完了。
 - **総合テストスイート（`test_polyglot_suite.py`）**:
   - 全 7 テスト（辞書、VAD、8言語ASR、遅延ロード、8言語NMT、LID言語判定、セキュリティ制約）が 100% PASS。

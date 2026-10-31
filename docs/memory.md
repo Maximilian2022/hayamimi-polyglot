@@ -160,3 +160,13 @@ Hayamimi Polyglot で稼働する全 8 言語対応モデル群と推論エン�
 6. **CORSロック**: 外部サイトからの WebSocket / SSE 読み取りを遮断。
 7. **クリーンライセンス**: 全てのライブラリ・モデルが商用フリー（Apache 2.0 / MIT）。
 
+---
+
+## 4. 依存関係管理・CI/CD 保守ポリシー (Dependabot)
+- **Grouped Updates（グループ化更新）の厳格適用**:
+  - `requirements.txt` の個別更新による PR 乱立（通知スパム）およびマージコンフリクトを回避するため、`.github/dependabot.yml` では最新の `groups: python-dependencies: patterns: ["*"]` を採用。
+  - すべての pip パッケージ更新は 1 つのまとまった PR として定期配信（毎週月曜 09:00 JST）。
+- **Python 3.14 互換性・Zero Telemetry 検証必須**:
+  - 依存ライブラリの更新にあたっては、Python 3.14 上での動作検証および `test_polyglot_suite.py` の全テスト（ASR/NMT/VAD/辞書/セキュリティ制約）が 100% PASS することを必須要件とする。
+
+

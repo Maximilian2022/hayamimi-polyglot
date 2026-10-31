@@ -3,27 +3,26 @@
 
 # Core Audio & ASR
 numpy>=2.5.4
-sounddevice>=0.4.6
+sounddevice>=0.5.6
 soundfile>=0.14.0
-onnxruntime>=1.17.0
-sherpa-onnx>=1.10.0
+onnxruntime>=1.31.1
+sherpa-onnx>=2.0.1
 
 # Translation (Local CPU Optimized)
-ctranslate2>=4.0.0
+ctranslate2>=4.8.4
 sentencepiece>=0.2.2
 
 # Business Dictionary & Tokenization (Apache 2.0)
-sudachipy>=0.6.8
+sudachipy>=0.7.0
 sudachidict_full>=20261015
 
 # Windows Audio Capture (Non-admin Application Loopback)
-comtypes>=1.4.0
-pycaw>=20240210
+comtypes>=1.4.17
+pycaw>=20260927
 
 # Desktop UI & Overlay (LGPL / Commercial-friendly PySide6)
-PySide6>=6.6.0
+PySide6>=6.12.0
 
 # Browser View for Screen Sharing (127.0.0.1 bound only)
-fastapi>=0.109.0
-uvicorn>=0.27.0
-
+fastapi>=0.162.0
+uvicorn>=0.54.0
