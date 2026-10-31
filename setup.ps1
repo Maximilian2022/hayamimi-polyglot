@@ -95,9 +95,9 @@ $xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Hayamimi Polyglot - セットアップ ＆ 更新"
-        Height="620" Width="580"
+        Height="780" Width="640" MinHeight="680" MinWidth="580"
         WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
+        ResizeMode="CanResizeWithGrip"
         Background="#0F172A" Foreground="#F8FAFC"
         FontFamily="Segoe UI, Meiryo">
     <Window.Resources>
@@ -107,19 +107,47 @@ $xaml = @"
         <Style TargetType="GroupBox">
             <Setter Property="BorderBrush" Value="#334155"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Margin" Value="0,8,0,0"/>
-            <Setter Property="Padding" Value="10"/>
+            <Setter Property="Margin" Value="0,6,0,0"/>
+            <Setter Property="Padding" Value="10,6,10,8"/>
             <Setter Property="Foreground" Value="#94A3B8"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
         <Style TargetType="CheckBox">
             <Setter Property="Foreground" Value="#E2E8F0"/>
-            <Setter Property="Margin" Value="0,4,0,4"/>
+            <Setter Property="Margin" Value="0,3,0,2"/>
             <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <!-- Modern Custom Button Style (prevents Windows 11 theme white-out) -->
+        <Style TargetType="Button">
+            <Setter Property="OverridesDefaultStyle" Value="True"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border" Background="{TemplateBinding Background}" 
+                                BorderBrush="{TemplateBinding BorderBrush}" 
+                                BorderThickness="{TemplateBinding BorderThickness}" 
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.88"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="border" Property="Opacity" Value="0.75"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="border" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="20">
+    <Grid Margin="18">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -129,14 +157,14 @@ $xaml = @"
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock Text="🎙️🌐 Hayamimi Polyglot" FontSize="20" FontWeight="Bold" Foreground="#38BDF8"/>
-            <TextBlock Text="リアルタイム多言語同時並行通訳システム (完全ローカル・録音ゼロ)" FontSize="12" Foreground="#94A3B8" Margin="0,4,0,0"/>
+            <TextBlock Text="リアルタイム多言語同時並行通訳システム (完全ローカル・録音ゼロ)" FontSize="12" Foreground="#94A3B8" Margin="0,3,0,0"/>
         </StackPanel>
 
         <!-- Install Location Group -->
         <GroupBox Grid.Row="1" Header="インストール先フォルダ">
-            <StackPanel Margin="0,4,0,0">
+            <StackPanel Margin="0,2,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -144,52 +172,55 @@ $xaml = @"
                     </Grid.ColumnDefinitions>
                     <TextBox x:Name="TxtPath" Grid.Column="0" Text="$DefaultInstallPath" 
                              Background="#1E293B" Foreground="#F8FAFC" BorderBrush="#334155" 
-                             Padding="6" FontSize="13" VerticalContentAlignment="Center"/>
+                             Padding="6,7" FontSize="13" VerticalContentAlignment="Center"/>
                     <Button x:Name="BtnBrowse" Grid.Column="1" Content="参照..." Margin="8,0,0,0" 
-                            Background="#334155" Foreground="#F8FAFC" BorderBrush="#475569" 
-                            Padding="12,6" FontWeight="SemiBold"/>
+                            Background="#334155" Foreground="#F8FAFC" BorderBrush="#475569" BorderThickness="1"
+                            Padding="14,7" FontWeight="SemiBold" FontSize="12"/>
                 </Grid>
                 <TextBlock x:Name="LblPathNotice" Text="💡 クラウド同期（OneDrive等）を避けたローカル推奨パスを自動設定しました" 
-                           FontSize="11" Foreground="#34D399" Margin="2,6,0,0"/>
+                           FontSize="11" Foreground="#34D399" Margin="2,4,0,0"/>
             </StackPanel>
         </GroupBox>
 
         <!-- Models Selection Group -->
         <GroupBox Grid.Row="2" Header="ダウンロードする AI モデル構成 &amp; 環境設定">
-            <StackPanel Margin="0,4,0,0">
+            <StackPanel Margin="0,2,0,0">
                 <CheckBox x:Name="ChkCleanVenv" Content="🔄 Python仮想環境をクリーン再構築する (推奨: 古いパッケージ残骸を排除)" IsChecked="True" FontWeight="SemiBold" Foreground="#38BDF8"/>
                 <TextBlock Text="  • uv のローカルキャッシュを活用するため、再構築しても再ダウンロードゼロ・約 1〜2 秒で健全な環境を復元" 
-                           FontSize="11" Foreground="#94A3B8" Margin="20,0,0,8"/>
+                           FontSize="11" Foreground="#94A3B8" Margin="20,0,0,5"/>
 
                 <CheckBox x:Name="ChkBase" Content="📦 基本モデル構成 (必須・約 800MB)" IsChecked="True" IsEnabled="False" FontWeight="Bold"/>
                 <TextBlock Text="  • 日本語 ASR (ReazonSpeech Zipformer INT8) + VAD (Silero)&#x0a;  • 100言語相互翻訳 (M2M-100 INT8) + 高速日英 (FuguMT)" 
-                           FontSize="11" Foreground="#64748B" Margin="20,0,0,6"/>
+                           FontSize="11" Foreground="#64748B" Margin="20,0,0,5"/>
 
                 <CheckBox x:Name="ChkParakeet" Content="⚡ 高精度 英語特化 ASR (Parakeet TDT v2: +約 600MB)" IsChecked="True"/>
-                <TextBlock Text="  • ネイティブの早口英語やビジネス略語の認識精度が劇的に向上" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,6"/>
+                <TextBlock Text="  • ネイティブの早口英語やビジネス略語の認識精度が劇的に向上" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,5"/>
 
                 <CheckBox x:Name="ChkNllb" Content="🌐 高精度 アジア・多言語翻訳 (NLLB-200 600M: +約 600MB)" IsChecked="False"/>
-                <TextBlock Text="  • 中国語・韓国語・ベトナム語などの長文翻訳精度やビジネス敬語を向上" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,6"/>
+                <TextBlock Text="  • 中国語・韓国語・ベトナム語などの長文翻訳精度やビジネス敬語を向上" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,5"/>
 
                 <CheckBox x:Name="ChkSenseVoice" Content="🚀 超高速 多言語 ASR (SenseVoice Small: +約 200MB)" IsChecked="False"/>
-                <TextBlock Text="  • アジア系言語（中・韓・広東語等）の音声認識とノイズ自動除去" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,0"/>
+                <TextBlock Text="  • アジア系言語（中・韓・広東語等）の音声認識とノイズ自動除去" FontSize="11" Foreground="#94A3B8" Margin="20,0,0,2"/>
             </StackPanel>
         </GroupBox>
 
         <!-- Log & Progress -->
-        <Grid Grid.Row="3" Margin="0,12,0,12">
+        <Grid Grid.Row="3" Margin="0,10,0,10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <ProgressBar x:Name="PrgBar" Grid.Row="0" Height="6" Background="#1E293B" Foreground="#38BDF8" BorderThickness="0" Margin="0,0,0,8" IsIndeterminate="False"/>
-            <TextBox x:Name="TxtLog" Grid.Row="1" Background="#020617" Foreground="#CBD5E1" 
-                     BorderBrush="#1E293B" FontFamily="Consolas, monospace" FontSize="11" 
-                     IsReadOnly="True" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap"/>
+            <ProgressBar x:Name="PrgBar" Grid.Row="0" Height="6" Background="#1E293B" Foreground="#38BDF8" BorderThickness="0" Margin="0,0,0,6" IsIndeterminate="False"/>
+            <Border Grid.Row="1" Background="#020617" BorderBrush="#334155" BorderThickness="1" CornerRadius="4">
+                <TextBox x:Name="TxtLog" Background="Transparent" Foreground="#94A3B8" 
+                         BorderThickness="0" FontFamily="Consolas, monospace" FontSize="11" 
+                         IsReadOnly="True" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Auto" 
+                         TextWrapping="Wrap" MinHeight="140" Padding="8"/>
+            </Border>
         </Grid>
 
         <!-- Bottom Action Buttons -->
-        <Grid Grid.Row="4">
+        <Grid Grid.Row="4" Margin="0,2,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
@@ -197,8 +228,8 @@ $xaml = @"
             </Grid.ColumnDefinitions>
             <CheckBox x:Name="ChkLaunch" Grid.Column="0" Content="完了後に今すぐ起動する" IsChecked="True" VerticalAlignment="Center"/>
             <Button x:Name="BtnInstall" Grid.Column="2" Content="🚀 セットアップを開始する" 
-                    Background="#10B981" Foreground="White" BorderThickness="0" 
-                    Padding="18,10" FontWeight="Bold" FontSize="14" Cursor="Hand"/>
+                    Background="#10B981" Foreground="#FFFFFF" BorderThickness="0" 
+                    Padding="20,10" FontWeight="Bold" FontSize="14"/>
         </Grid>
     </Grid>
 </Window>
