@@ -3,6 +3,7 @@
 ## プロジェクト概要
 - **リポジトリ名**: `hayamimi-polyglot`
 - **GitHub**: `https://github.com/Maximilian2022/hayamimi-polyglot` (Public)
+- **ベースプロジェクト**: [oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) (MIT License) の多言語・多モデル拡張フォーク
 - **ミッション**: 3〜5年前の一般的なビジネスノートPC（Core i5 8〜11世代/Ryzen 5、内蔵GPUのみ、RAM 8〜16GB）のCPUのみで軽快に動作する、ビジネス会議・商談向けリアルタイム多言語同時並行通訳システム。
 - **基本原則**: 完全ローカル動作、音声データ録音ゼロ（メモリ内即時破棄）、外部通信ゼロ（Zero Telemetry）、商用クリーンライセンス（Apache 2.0 / MIT）。
 

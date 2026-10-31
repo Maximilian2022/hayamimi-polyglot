@@ -1,5 +1,13 @@
 # Hayamimi Polyglot 🎙️🌐
 
+[![Fork of oboroge0/hayamimi](https://img.shields.io/badge/fork%20of-oboroge0%2Fhayamimi-blue?logo=github)](https://github.com/oboroge0/hayamimi)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-green.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Python: 3.14](https://img.shields.io/badge/Python-3.14-blue.svg)](https://www.python.org/)
+[![Zero Telemetry](https://img.shields.io/badge/Telemetry-Zero%20(100%25%20Offline)-brightgreen.svg)]()
+
+> [!NOTE]
+> **Hayamimi Polyglot** は、[oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) をベースに、主要 8 言語（日・英・中・韓・仏・独・西・越）の「直接聞き取り（ASR）」、Meta M2M-100 による「相互同時マルチキャスト翻訳（NMT）」、遅延ロード（Lazy Loading / オンデマンド起動）、およびクロスプラットフォーム統一 GUI インストーラー等を大幅に拡張・実装した派生プロジェクト（Polyglot Fork）です。
+
 **完全ローカル・低遅延・高セキュリティな多言語ビジネス会議向けリアルタイム同時並行通訳システム**
 
 3〜5年前の一般的なビジネスノートPC（Intel Core i5 / Ryzen 5、内蔵GPUのみ、メモリ8〜16GB）のCPUのみで軽快に動作します。  
@@ -98,7 +106,8 @@ chmod +x start.sh
 
 ---
 
-## 📄 ライセンス
+## 📄 ライセンス & 謝辞 (Credits)
 
-本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が完全に許諾されています。
+- **ベースプロジェクト**: [oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) (MIT License) - 素晴らしい原案・基礎設計に深く感謝いたします。
+- **Hayamimi Polyglot**: 本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が完全に許諾されています。
 

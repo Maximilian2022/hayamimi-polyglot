@@ -330,6 +330,19 @@
   - コントロールパネルが起動直後から `winId` に対し `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` を例外なく適用完了することを確認。
   - `test_polyglot_suite.py` 全 7 テスト 100% PASS。
 
+## 17. GitHub リポジトリにおける oboroge0/hayamimi 派生（Fork）クレジットの明記と整備
+- **ユーザー要望**:
+  - `Githubで、これもoboroge0/hayamimiのForkだよって表示にしたいんだけど、できるのかな？`
+  - 個人アカウントでの重複Fork制約（同一上流リポジトリから2つ目のFork作成不可）を踏まえ、独立リポジトリ（Standalone）のメリット（GitHub全体検索インデックスに完全ヒット）を活かしつつ、公式派生プロジェクトであることを明記する「方法2」を採用。
+- **改修内容**:
+  1. **`README.md`**:
+     - トップに `[![Fork of oboroge0/hayamimi](https://img.shields.io/badge/fork%20of-oboroge0%2Fhayamimi-blue?logo=github)](https://github.com/oboroge0/hayamimi)` バッジを新設。
+     - アラートブロックにて `oboroge0/hayamimi` をベースにした多言語・多モデル拡張フォークであることを明記。
+     - 末尾の「ライセンス & 謝辞 (Credits)」に原案・基礎設計への感謝とリンクを明記。
+  2. **GitHub リポジトリ設定 (`gh repo edit`)**:
+     - Description（About欄）: `Real-time multilingual simultaneous interpretation fork of oboroge0/hayamimi (CPU only, Zero Telemetry, 8 languages)` を設定。
+     - Topics: `speech-to-text`, `translation`, `offline`, `multilingual`, `sherpa-onnx`, `ctranslate2`, `pyside6` を登録。
+
 
 
 
