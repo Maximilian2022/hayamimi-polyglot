@@ -5,7 +5,7 @@
 numpy>=2.5.4
 sounddevice>=0.5.6
 soundfile>=0.14.0
-onnxruntime>=1.31.1
+onnxruntime>=1.19.0
 sherpa-onnx>=2.0.1
 
 # Translation (Local CPU Optimized)
@@ -17,11 +17,11 @@ sudachipy>=0.7.0
 sudachidict_full>=20261015
 
 # Windows Audio Capture (Non-admin Application Loopback)
-comtypes>=1.4.17
-pycaw>=20260927
+comtypes>=1.4.17; sys_platform == 'win32'
+pycaw>=20260927; sys_platform == 'win32'
 
 # Desktop UI & Overlay (LGPL / Commercial-friendly PySide6 Essentials)
-PySide6-Essentials>=6.12.0
+PySide6-Essentials>=6.9.0
 
 # Browser View for Screen Sharing (127.0.0.1 bound only)
 fastapi>=0.162.0

@@ -521,3 +521,28 @@
      - 引数定義を `vad_self: Optional[SileroVAD] = None, ..., vad: Optional[SileroVAD] = None` に改修し、`vad_self` でも従来の `vad` でも両対応できるよう柔軟化。
   2. 実機ヘッドレス統合テストを実施し、`SessionWorker` インスタンス化および全シグナル接続（`subtitle_ready` 等）が正常完了することを確認。
   3. ポータブルパッケージを再ビルドし、GitHub Releases `v1.0.0` の `hayamimi-polyglot-v1.0.0-windows-portable.zip` を上書き更新。
+
+
+## 25. macOS Apple Silicon 向け完全オフラインポータブルパッケージの全面刷新
+- **背景・知見の水平展開**:
+  - Windows 版で得られた知見（`main.py` の `vad_self` 引数修正、`PySide6-Essentials` への一本化、不要モデルの除外、完全オフライン自律起動性の担保）を Mac 版にも全面適用。
+  - 従来の Mac 版 ZIP に残っていた潜在的課題を特定：
+    1. `main.py` の `SessionWorker.__init__(vad_self)` エラーが含まれたままだった。
+    2. 会社 PC 等で外部ダウンロードが遮断されている場合、`start.sh` が `uv` を curl しようとして停止するリスクがあった。
+    3. Mac 側に Python 3.12 がインストールされていない場合、`uv` が Python のダウンロードを試みて失敗するリスクがあった。
+    4. ReazonSpeech や SenseVoice に未使用の巨大な fp32/fp16 モデルが含まれ無駄に容量を圧迫していた。
+- **実施内容**:
+  1. **スタンドアロン uv（`aarch64-apple-darwin`）の同梱**:
+     - Astral 公式の macOS arm64 向けスタンドアロンシングルバイナリ `./uv` を ZIP ルートに同梱。
+  2. **スタンドアロン CPython 3.12（`aarch64-apple-darwin`）の同梱**:
+     - `python-build-standalone` の macOS arm64 版 CPython 3.12 を `./python` に同梱（テスト用データ等は剪定）。Mac 側の既存 Python の有無に左右されない完全自己完結化。
+  3. **最新オフライン wheel（37個, 184MB）の同梱**:
+     - `PySide6-Essentials`、`onnxruntime`、`ctranslate2`、`sherpa-onnx` 等の macOS arm64 / universal2 wheel を同梱。
+  4. **モデル構成の厳格な INT8 最適化**:
+     - ReazonSpeech の fp32/fp16（約 400MB）および SenseVoice の fp32（937MB）を除外し、INT8 モデルのみに統一。
+     - ZIP 圧縮後サイズを **1839.27 MB**（約 1.79 GB）に最適化し、GitHub Releases の 2GB 制限をクリア。
+  5. **`start.sh` の完全オフライン自律起動化**:
+     - 同梱の `./uv` および `./python` を最優先参照し、外部通信ゼロで環境を自律生成・起動するよう改修。
+     - Unix 実行権限（`0o755`）を ZIP 内属性として付与。
+  6. **GitHub Releases（v1.0.0）への上書き公開**:
+     - `hayamimi-polyglot-v1.0.0-macos-portable.zip` を再アップロード完了。

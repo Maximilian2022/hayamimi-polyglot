@@ -17,31 +17,37 @@ export PIP_USE_FEATURE="${PIP_USE_FEATURE:-truststore}"
 if [ ! -f ".venv/bin/python" ] && [ ! -f ".venv/bin/python3" ]; then
     echo "📦 Initializing local offline environment..."
     
-    # Check for uv
+    # Check for uv (bundled standalone binary first)
     UV_CMD=""
-    if command -v uv >/dev/null 2>&1; then
+    if [ -f "./uv" ]; then
+        chmod +x ./uv
+        UV_CMD="./uv"
+    elif command -v uv >/dev/null 2>&1; then
         UV_CMD="uv"
     elif [ -f "$HOME/.local/bin/uv" ]; then
         UV_CMD="$HOME/.local/bin/uv"
-    elif [ -f "./uv" ]; then
-        UV_CMD="./uv"
     fi
 
     if [ -z "$UV_CMD" ]; then
-        echo "⬇️ Installing uv (fast Python manager)..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh || true
-        UV_CMD="$HOME/.local/bin/uv"
-    fi
-
-    if [ ! -x "$UV_CMD" ] && ! command -v "$UV_CMD" >/dev/null 2>&1; then
-        echo "❌ [ERROR] uv is required to initialize the offline environment."
-        echo "Please install uv or Python 3.12+."
+        echo "❌ [ERROR] Bundled uv executable not found."
+        echo "Please ensure the portable package is fully extracted."
         read -p "Press Enter to exit..." || true
         exit 1
     fi
 
+    # Determine Python source (bundled standalone runtime first)
+    PY_FLAG=""
+    if [ -f "./python/bin/python3" ]; then
+        chmod +x ./python/bin/python3
+        PY_FLAG="--python ./python/bin/python3"
+    elif command -v python3.12 >/dev/null 2>&1; then
+        PY_FLAG="--python 3.12"
+    elif command -v python3 >/dev/null 2>&1; then
+        PY_FLAG="--python python3"
+    fi
+
     echo "🐍 Creating virtual environment (.venv)..."
-    $UV_CMD venv .venv --python 3.12 || $UV_CMD venv .venv
+    $UV_CMD venv .venv $PY_FLAG || $UV_CMD venv .venv
 
     if [ -d "wheels" ]; then
         echo "📦 Installing libraries from bundled offline wheels (Zero external downloads / 100% Offline)..."
