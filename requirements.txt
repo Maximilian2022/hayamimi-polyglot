@@ -10,7 +10,7 @@ sherpa-onnx>=1.10.0
 
 # Translation (Local CPU Optimized)
 ctranslate2>=4.0.0
-sentencepiece>=0.2.0
+sentencepiece>=0.2.2
 
 # Business Dictionary & Tokenization (Apache 2.0)
 sudachipy>=0.6.8
