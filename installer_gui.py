@@ -213,17 +213,21 @@ class InstallWorker(QThread):
                     shortcut.chmod(0o755)
                     self.log_signal.emit(f"✓ macOS ランチャー作成完了: {shortcut}")
                 elif platform.system() == "Windows":
+                    shortcut_path = desktop / "Hayamimi Polyglot.lnk"
+                    target_bat = self.target_dir / "start.bat"
+                    ps_cmd = (
+                        f'$ws = New-Object -ComObject WScript.Shell; '
+                        f'$s = $ws.CreateShortcut("{shortcut_path}"); '
+                        f'$s.TargetPath = "{target_bat}"; '
+                        f'$s.WorkingDirectory = "{self.target_dir}"; '
+                        f'$s.Description = "Hayamimi Polyglot - リアルタイム多言語同時並行通訳"; '
+                        f'$s.Save()'
+                    )
                     try:
-                        import win32com.client  # type: ignore
-                        shell = win32com.client.Dispatch("WScript.Shell")
-                        shortcut = shell.CreateShortCut(str(desktop / "Hayamimi Polyglot.lnk"))
-                        shortcut.TargetPath = str(self.target_dir / "start.bat")
-                        shortcut.WorkingDirectory = str(self.target_dir)
-                        shortcut.Description = "Hayamimi Polyglot - リアルタイム多言語同時並行通訳"
-                        shortcut.Save()
-                        self.log_signal.emit(f"✓ Windows ショートカット作成完了: {shortcut.FullName}")
-                    except Exception:
-                        pass
+                        subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
+                        self.log_signal.emit(f"✓ Windows ショートカット作成完了: {shortcut_path}")
+                    except Exception as ex:
+                        self.log_signal.emit(f"⚠️ ショートカット作成スキップ: {ex}")
 
             self.progress_signal.emit(100)
             self.log_signal.emit("=========================================")

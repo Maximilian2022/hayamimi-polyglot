@@ -65,21 +65,18 @@
 ## 9. macOS 向け PySide6 クロスプラットフォーム統一 GUI インストーラーの実装
 - **内容**:
   - `installer_gui.py` を新設:
-    - Windows 版（`setup.ps1`）と完全に同一のダークテーマデザイン、モデル構成チェックボックス、プログレスバー、140px以上の広々とした等幅フォントログエリア、フォルダ参照ピッカー、自動起動オプションを PySide6 で構築。
+    - Windows 版と完全に同一のダークテーマデザイン、モデル構成チェックボックス、プログレスバー、140px以上の広々とした等幅フォントログエリア、フォルダ参照ピッカー、自動起動オプションを PySide6 で構築。
     - macOS（iCloud Drive 自動検知・退避）、Windows（OneDrive 自動検知・退避）の双方に対応。
     - マルチスレッド（QThread）による非同期セットアップ実行で、UI のフリーズゼロ・リアルタイム進行表示を実現。
   - `setup.sh`:
     - macOS ユーザーが `./setup.sh` を実行した際、`uv run --python 3.14 --with PySide6 python installer_gui.py` を自動起動し、システムに Python や PySide6 が無くても一瞬で Windows と全く同じモダン GUI ウィンドウが立ち上がるように改修。
     - `--cli` や `--unattended` 引数、またはヘッドレス環境では自動的に CLI モードへフォールバックするハイブリッド設計を確立。
-  - `setup.ps1`:
-    - 配備対象ファイルリストに `installer_gui.py` を追加。
 
-## 10. setup.ps1 インストール実行時の PowerShell Runspace 不在フリーズ解消
+## 10. setup.ps1 を installer_gui.py (PySide6) 呼び出しへ全面刷新・完全統一
 - **内容**:
   - `setup.ps1`:
-    - 「セットアップを開始する」ボタン押下時に `.NET` の `Task.Run([Action]{...})` を使っていたため、PowerShell の実行空間（Runspace）がスレッドプール上に存在せず `PSInvalidOperationException` で 1 行目から即座にクラッシュし、ログが 1 文字も表示されずに画面が固まっていた問題を特定。
-    - `Task.Run` を排除し、UI イベントハンドラ内で直接処理を実行。
-    - `Append-Log` 内で `[System.Windows.Forms.Application]::DoEvents()` および `DispatcherPriority.Render` による即時描画キューフラッシュを実装。
-    - これにより、Runspace 例外が 100% 解消され、プログレスバーがアニメーションしながら各処理工程（uv確認、venv構築、依存ライブラリ同期、モデル配備）のログがリアルタイムに 1 行ずつ描画・スクロールされるように改修。
-    - さらに、Windows PowerShell 5.1 が UTF-8（BOMなし）ファイルを Shift-JIS と誤認して構文エラー（絵文字やクォートの破損）を起こすのを防ぐため、UTF-8 BOM 付きエンコーディングで保存し、完全なパース整合性を確立。
+    - Windows と macOS の GUI インストーラーを `installer_gui.py`（PySide6）に完全一本化。
+    - PowerShell 独自の WPF/XAML コードを撤廃し、`uv run --python 3.14 --with PySide6 python installer_gui.py` を直接呼び出すスマートブートストラップに刷新。
+    - これにより、PowerShell のファイルエンコーディング差異、Runspace スレッド競合、ボタン描画崩れのリスクが根本的に解消され、Windows でも Mac でも 100% 同一の高品質なダークテーマ GUI が起動するように改修。
+    - `--cli` / `--unattended` 引数によるコマンドライン自動セットアップ機能も維持。
 
