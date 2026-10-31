@@ -64,6 +64,11 @@ if [ ! -f "$PYTHON_EXE" ]; then
     PYTHON_EXE=".venv/bin/python3"
 fi
 
+if [ "$1" = "--dry-run" ]; then
+    echo "✓ Environment initialization dry-run completed successfully!"
+    exit 0
+fi
+
 echo "🚀 Launching Hayamimi Polyglot..."
 if ! "$PYTHON_EXE" main.py "$@"; then
     echo "❌ Hayamimi Polyglot terminated with an error."

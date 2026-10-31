@@ -1,0 +1,134 @@
+name: CI & Portable Release Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
+
+permissions:
+  contents: write
+
+jobs:
+  # -------------------------------------------------------------
+  # Job 1: Verify One-liner Clean Installation (Windows & macOS)
+  # -------------------------------------------------------------
+  test-oneliner:
+    name: Verify One-liner (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+          - os: macos-14
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install uv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+          $uvDir = Join-Path $env:USERPROFILE ".local\bin"
+          $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Verify Windows One-liner Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installPath = Join-Path $env:RUNNER_TEMP "hayamimi-oneliner-test"
+          Write-Host "Testing setup.ps1 in unattended mode..."
+          & .\setup.ps1 -Unattended -InstallPath $installPath
+          
+          $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
+          $testCmd = "import os; os.environ['QT_QPA_PLATFORM'] = 'offscreen'; from PySide6 import QtCore, QtWidgets; import main; print('✓ Windows One-liner setup passed!')"
+          & $pyExe -c $testCmd
+
+      - name: Verify macOS One-liner Setup
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          INSTALL_PATH="$HOME/hayamimi-oneliner-test"
+          chmod +x ./setup.sh
+          ./setup.sh "$INSTALL_PATH" --unattended
+          
+          TEST_PY="$INSTALL_PATH/.venv/bin/python"
+          QT_QPA_PLATFORM=offscreen "$TEST_PY" -c "import os; from PySide6 import QtCore, QtWidgets; import main; print('✓ macOS One-liner setup passed!')"
+
+  # -------------------------------------------------------------
+  # Job 2: Build, Verify & Release Portable Packages (Win & Mac)
+  # -------------------------------------------------------------
+  build-and-release:
+    name: Build & Release Portable (${{ matrix.os }})
+    needs: test-oneliner
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            pkg_name: hayamimi-polyglot-v1.0.0-windows-portable.zip
+            build_script: scripts/build_portable_win.py
+          - os: macos-14
+            pkg_name: hayamimi-polyglot-v1.0.0-macos-portable.zip
+            build_script: scripts/build_portable_mac.py
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install uv (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+          $uvDir = Join-Path $env:USERPROFILE ".local\bin"
+          $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Cache or Fetch AI Models from Release v1.0.0
+        id: cache-models
+        uses: actions/cache@v4
+        with:
+          path: models
+          key: models-int8-v1
+
+      - name: Download Base Models if not cached
+        if: steps.cache-models.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download v1.0.0 --pattern "hayamimi-polyglot-v1.0.0-windows-portable.zip"
+          unzip -q hayamimi-polyglot-v1.0.0-windows-portable.zip "hayamimi-polyglot/models/*"
+          mv hayamimi-polyglot/models ./models
+          rm -rf hayamimi-polyglot hayamimi-polyglot-v1.0.0-windows-portable.zip
+        shell: bash
+
+      - name: Build & Run Headless Verification Smoke Test
+        run: |
+          uv run --python 3.12 python ${{ matrix.build_script }}
+        shell: bash
+
+      - name: Upload Portable Package to GitHub Releases v1.0.0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload v1.0.0 "${{ matrix.pkg_name }}" --clobber
+        shell: bash
+

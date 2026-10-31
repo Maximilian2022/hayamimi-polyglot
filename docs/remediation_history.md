@@ -546,3 +546,24 @@
      - Unix 実行権限（`0o755`）を ZIP 内属性として付与。
   6. **GitHub Releases（v1.0.0）への上書き公開**:
      - `hayamimi-polyglot-v1.0.0-macos-portable.zip` を再アップロード完了。
+
+
+## 26. GitHub Actions による「ワンライナー検証」＆「Portable 自動ビルド・起動テスト・リリース」CI/CD パイプラインの構築
+- **背景・ユーザー要望**:
+  - コミット（Push / 手動実行）時に、Windows および macOS（Apple Silicon）双方の Portable パッケージを GitHub Actions 上で自動ビルドし、解凍して起動テストまで実施した上で Release アセットに反映したい。
+  - Web ワンライナー（PowerShell `setup.ps1` / Bash `setup.sh`）についても、クリーンな仮想マシン上で正常にセットアップ・起動できるかを自動検証したい。
+- **実施内容**:
+  1. **公式ビルド＆テストスクリプトの整備 (`scripts/`)**:
+     - `scripts/build_portable_win.py`:
+       - スタンドアロン CPython 3.12 取得、VC++ 再頒布可能 DLL 同梱、PySide6-Essentials 導入、INT8 モデル配備、ZIP 圧縮。
+       - 生成後、一時隔離ディレクトリに解凍し、ヘッドレス（`QT_QPA_PLATFORM=offscreen`）で `QtCore`, `QtWidgets`, `SessionWorker`, `main.py` のインポート・初期化を自動スモークテスト。
+     - `scripts/build_portable_mac.py`:
+       - スタンドアロン uv、スタンドアロン CPython 3.12（開発データ剪定）、macOS arm64 wheel 群（37個）、INT8 モデル配備、Unix 実行権限（`0o755`）付与 ZIP 圧縮。
+       - macOS ランナー上での解凍、環境自律構築、ヘッドレス起動スモークテストを実施。
+  2. **CI ワークフローの構築 (`.github/workflows/ci-release-portable.yml`)**:
+     - **Job 1 (`test-oneliner`)**:
+       - `windows-latest` & `macos-14`: 無人モード（`--unattended`）で `setup.ps1` / `setup.sh` を実行し、何もない新規領域で Python 仮想環境が健全に構築され `main.py` が起動できるかを検証。
+     - **Job 2 (`build-and-release`)**:
+       - Job 1 が成功した場合に起動。
+       - モデル群を GitHub Releases / `actions/cache` から取得し、Win/Mac 双方で Portable ZIP をビルド ＆ 起動スモークテスト。
+       - テスト合格後、`gh release upload v1.0.0 ... --clobber` で自動リリース公開。
