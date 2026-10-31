@@ -96,3 +96,13 @@
     - `get_desktop_dir()` を新設し、Windows API `SHGetFolderPathW(None, CSIDL_DESKTOPDIRECTORY [0x0010], ...)` を直接呼び出すことで、OneDrive やドメインポリシーでリダイレクトされた「真のデスクトップパス」を確実に取得するよう改修。
     - 実機テストを行い、ユーザーのデスクトップ画面に `Hayamimi Polyglot.lnk` が正常生成されることを確認。
 
+## 13. main.py の起動クラッシュ (NameError) 修正および起動ランチャーのエラー捕捉強化
+- **内容**:
+  - `main.py`:
+    - Windows App ID 設定処理で `platform.system()` を呼び出しているにもかかわらず `import platform` が欠落していたため `NameError` で起動直後に即死していた不具合を修正。
+    - モデル配置ディレクトリ解決関数 `find_models_dir()` を追加し、ローカルや独立ディレクトリからでも確実に AI モデルを発見できるよう強化。
+  - `core/vad.py`:
+    - `model_path` にディレクトリパスが渡された場合でも自動的に `silero_vad.onnx` を解決するように防御的プログラミングを適用。
+  - `start.bat` / `start.sh`:
+    - アプリケーションがエラーで異常終了した際にターミナルウィンドウが一瞬で消えてしまうのを防ぐため、エラー終了時にメッセージを表示して一時停止（`pause` / `read -p`）するエラートラップ機構を Windows・macOS の双方に導入。
+

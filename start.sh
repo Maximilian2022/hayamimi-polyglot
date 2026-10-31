@@ -10,13 +10,21 @@ echo "======================================================="
 
 if [ -f ".venv/bin/python" ]; then
     PYTHON_EXE=".venv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-    PYTHON_EXE="python3"
+elif [ -f ".venv/bin/python3" ]; then
+    PYTHON_EXE=".venv/bin/python3"
+elif command -v uv >/dev/null 2>&1; then
+    PYTHON_EXE="uv run --python 3.14 python"
 else
-    echo "[ERROR] Python virtual environment not found."
-    echo "Please run ./setup.sh first."
+    echo "❌ [ERROR] Python virtual environment not found at .venv"
+    echo "Please run ./setup.sh first to set up the environment."
+    read -p "Press Enter to exit..." || true
     exit 1
 fi
 
-exec "$PYTHON_EXE" main.py "$@"
+# Run application and keep terminal open if an error occurs
+if ! $PYTHON_EXE main.py "$@"; then
+    echo "❌ Hayamimi Polyglot terminated with an error."
+    read -p "Press Enter to exit..." || true
+    exit 1
+fi
 

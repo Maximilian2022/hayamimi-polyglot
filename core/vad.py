@@ -14,6 +14,12 @@ class SileroVAD:
     """Silero VAD ONNX wrapper for real-time speech detection."""
 
     def __init__(self, model_path: Path | str | None = None, models_dir: Path | str | None = None, threshold: float = 0.5):
+        if model_path is not None:
+            mp = Path(model_path)
+            if mp.is_dir():
+                models_dir = mp
+                model_path = None
+
         if model_path is None:
             if models_dir:
                 p = Path(models_dir) / "silero_vad.onnx"
@@ -24,6 +30,8 @@ class SileroVAD:
                     Path(__file__).resolve().parent.parent / "models" / "silero_vad.onnx",
                     Path(__file__).resolve().parent.parent.parent / "models" / "silero_vad.onnx",
                     Path("models") / "silero_vad.onnx",
+                    Path("E:/hayamimi/models") / "silero_vad.onnx",
+                    Path.home() / "hayamimi/models" / "silero_vad.onnx",
                 ]
                 for c in candidates:
                     if c.is_file():

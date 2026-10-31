@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import collections
 import os
+import platform
 import sys
 import threading
 import time
@@ -144,6 +145,20 @@ class SessionWorker(QtCore.QObject):
             self.translator.translate_multicast_async(text, src_lang, target_langs, on_translated)
 
 
+def find_models_dir() -> Path:
+    candidates = [
+        _HERE / "models",
+        Path("models"),
+        _HERE.parent / "models",
+        Path("E:/hayamimi/models"),
+        Path.home() / "hayamimi/models",
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "silero_vad.onnx").exists():
+            return c
+    return _HERE / "models"
+
+
 def main():
     # Set Windows App ID for proper taskbar/tray behavior
     if platform.system() == "Windows":
@@ -163,9 +178,8 @@ def main():
     print("=======================================================")
 
     # 1. Initialize Core Engines
-    models_dir = Path(__file__).resolve().parent.parent / "models"
-    if not models_dir.is_dir():
-        models_dir = Path("models")
+    models_dir = find_models_dir()
+    print(f"[Init] Using Models Directory: {models_dir}")
 
     print("[Init] Loading VAD engine...")
     vad = SileroVAD(models_dir=models_dir)

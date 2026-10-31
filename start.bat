@@ -17,6 +17,12 @@ if exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-start "" "%PYTHON_EXE%" main.py %*
+:: Run Python with error trapping
+"%PYTHON_EXE%" main.py %*
+if errorlevel 1 (
+    echo.
+    echo [ERROR] Hayamimi Polyglot encountered an error and stopped.
+    pause
+)
 exit /b 0
 
