@@ -146,8 +146,12 @@ $xaml = @"
         </GroupBox>
 
         <!-- Models Selection Group -->
-        <GroupBox Grid.Row="2" Header="ダウンロードする AI モデル構成">
+        <GroupBox Grid.Row="2" Header="ダウンロードする AI モデル構成 &amp; 環境設定">
             <StackPanel Margin="0,4,0,0">
+                <CheckBox x:Name="ChkCleanVenv" Content="🔄 Python仮想環境をクリーン再構築する (推奨: 古いパッケージ残骸を排除)" IsChecked="True" FontWeight="SemiBold" Foreground="#38BDF8"/>
+                <TextBlock Text="  • uv のローカルキャッシュを活用するため、再構築しても再ダウンロードゼロ・約 1〜2 秒で健全な環境を復元" 
+                           FontSize="11" Foreground="#94A3B8" Margin="20,0,0,8"/>
+
                 <CheckBox x:Name="ChkBase" Content="📦 基本モデル構成 (必須・約 800MB)" IsChecked="True" IsEnabled="False" FontWeight="Bold"/>
                 <TextBlock Text="  • 日本語 ASR (ReazonSpeech Zipformer INT8) + VAD (Silero)&#x0a;  • 100言語相互翻訳 (M2M-100 INT8) + 高速日英 (FuguMT)" 
                            FontSize="11" Foreground="#64748B" Margin="20,0,0,6"/>
@@ -201,6 +205,7 @@ $window = [System.Windows.Markup.XamlReader]::Load($reader)
 $txtPath = $window.FindName("TxtPath")
 $btnBrowse = $window.FindName("BtnBrowse")
 $lblPathNotice = $window.FindName("LblPathNotice")
+$chkCleanVenv = $window.FindName("ChkCleanVenv")
 $chkParakeet = $window.FindName("ChkParakeet")
 $chkNllb = $window.FindName("ChkNllb")
 $chkSenseVoice = $window.FindName("ChkSenseVoice")
@@ -208,6 +213,13 @@ $prgBar = $window.FindName("PrgBar")
 $txtLog = $window.FindName("TxtLog")
 $chkLaunch = $window.FindName("ChkLaunch")
 $btnInstall = $window.FindName("BtnInstall")
+
+# Check if already installed
+if (Test-Path (Join-Path $DefaultInstallPath "main.py")) {
+    $btnInstall.Content = "🔄 アップデート / 設定適用を開始"
+    $lblPathNotice.Text = "✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）"
+    $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::DodgerBlue
+}
 
 function Append-Log([string]$msg) {
     $time = (Get-Date).ToString("HH:mm:ss")
@@ -224,6 +236,15 @@ $btnBrowse.Add_Click({
     $dlg.SelectedPath = $txtPath.Text
     if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
         $txtPath.Text = $dlg.SelectedPath
+        if (Test-Path (Join-Path $txtPath.Text "main.py")) {
+            $btnInstall.Content = "🔄 アップデート / 設定適用を開始"
+            $lblPathNotice.Text = "✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）"
+            $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::DodgerBlue
+        } else {
+            $btnInstall.Content = "🚀 セットアップを開始する"
+            $lblPathNotice.Text = "💡 クラウド同期（OneDrive等）を避けたローカル推奨パスを自動設定しました"
+            $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::MediumSeaGreen
+        }
     }
 })
 
@@ -232,12 +253,14 @@ $btnInstall.Add_Click({
     $btnInstall.IsEnabled = $false
     $btnBrowse.IsEnabled = $false
     $txtPath.IsEnabled = $false
+    $chkCleanVenv.IsEnabled = $false
     $chkParakeet.IsEnabled = $false
     $chkNllb.IsEnabled = $false
     $chkSenseVoice.IsEnabled = $false
     $prgBar.IsIndeterminate = $true
 
     $targetDir = $txtPath.Text.Trim()
+    $cleanVenv = $chkCleanVenv.IsChecked
     $withParakeet = $chkParakeet.IsChecked
     $withNllb = $chkNllb.IsChecked
     $withSenseVoice = $chkSenseVoice.IsChecked
@@ -264,13 +287,22 @@ $btnInstall.Add_Click({
             }
             Append-Log "uv 検出完了: $uvExe"
 
-            # 2. Setup Python 3.12 Virtual Environment
-            Append-Log "Python 3.12 仮想環境を構築中 (.venv)..."
+            # 2. Setup / Rebuild Python 3.12 Virtual Environment
             $venvDir = Join-Path $targetDir ".venv"
-            & $uvExe venv $venvDir --python 3.12 | Out-Null
-
             $pyExe = Join-Path $venvDir "Scripts\python.exe"
-            Append-Log "Python 3.12 環境構築完了: $pyExe"
+
+            if ($cleanVenv -or (-not (Test-Path $pyExe))) {
+                Append-Log "Python 3.12 仮想環境をクリーン再構築中 (--clear)..."
+                Append-Log "※ uv のローカルキャッシュから即時展開されるため再DLなしで1〜2秒で完了します"
+                & $uvExe venv --clear $venvDir --python 3.12 | Out-Null
+            } else {
+                Append-Log "既存の Python 3.12 仮想環境を再利用します"
+            }
+
+            if (-not (Test-Path $pyExe)) {
+                throw "Python 仮想環境の構築に失敗しました: $pyExe"
+            }
+            Append-Log "Python 3.12 環境準備完了: $pyExe"
 
             # 3. Copy project files if installing to a new directory
             $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -286,11 +318,11 @@ $btnInstall.Add_Click({
                 Copy-Item -Path (Join-Path $sourceDir "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
             }
 
-            # 4. Install Dependencies
-            Append-Log "依存パッケージをインストール中 (PySide6, sherpa-onnx, ctranslate2)..."
+            # 4. Install / Update Dependencies
+            Append-Log "依存パッケージを同期中 (PySide6, sherpa-onnx, ctranslate2)..."
             $reqFile = Join-Path $targetDir "requirements.txt"
-            & $uvExe pip install -r $reqFile --python $pyExe | Out-Null
-            Append-Log "依存パッケージのインストール完了！"
+            & $uvExe pip install -r $reqFile --python $pyExe --upgrade | Out-Null
+            Append-Log "依存パッケージの同期完了！"
 
             # 5. Download Models
             $modelsDir = Join-Path $targetDir "models"
@@ -312,6 +344,24 @@ $btnInstall.Add_Click({
                     if ((Test-Path $src) -and (-not (Test-Path $dst))) {
                         Append-Log "  -> 配置: $m"
                         Copy-Item -Path $src -Destination $dst -Recurse -Force
+                    }
+                }
+            }
+
+            # Optional Models
+            if ($withSenseVoice) {
+                $svDir = Join-Path $modelsDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+                if (-not (Test-Path $svDir)) {
+                    Append-Log "SenseVoice Small 多言語ASRモデルをダウンロード中..."
+                    $svUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
+                    $tarFile = Join-Path $modelsDir "sense-voice.tar.bz2"
+                    try {
+                        Invoke-WebRequest -Uri $svUrl -OutFile $tarFile -UseBasicParsing
+                        tar -xjf $tarFile -C $modelsDir
+                        Remove-Item $tarFile -Force -ErrorAction SilentlyContinue
+                        Append-Log "SenseVoice Small 配備完了！"
+                    } catch {
+                        Append-Log "⚠️ SenseVoice ダウンロード失敗 (スキップします): $_"
                     }
                 }
             }
@@ -360,3 +410,4 @@ $btnInstall.Add_Click({
 
 # Show GUI
 $window.ShowDialog() | Out-Null
+

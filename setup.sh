@@ -31,9 +31,16 @@ if ! command -v uv >/dev/null 2>&1; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 3. Create Python 3.12 Virtual Environment
-echo "🐍 Creating Python 3.12 virtual environment (.venv)..."
-uv venv "$INSTALL_PATH/.venv" --python 3.12
+# 3. Create or Clean-Rebuild Python 3.12 Virtual Environment
+if [ -d "$INSTALL_PATH/.venv" ]; then
+    echo "🔄 Existing Python environment detected."
+    echo "⚡ Clean-rebuilding virtual environment (--clear)..."
+    echo "   (uv caches wheels locally, so rebuild takes only 1-2 seconds with 0 re-downloads)"
+    uv venv --clear "$INSTALL_PATH/.venv" --python 3.12
+else
+    echo "🐍 Creating Python 3.12 virtual environment (.venv)..."
+    uv venv "$INSTALL_PATH/.venv" --python 3.12
+fi
 
 # 4. Copy project files if installing to different directory
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -50,9 +57,9 @@ if [ "$CURRENT_DIR" != "$INSTALL_PATH" ] && [ -f "$CURRENT_DIR/main.py" ]; then
     chmod +x "$INSTALL_PATH/start.sh"
 fi
 
-# 5. Install Dependencies
-echo "📦 Installing dependencies (PySide6, sherpa-onnx, ctranslate2)..."
-uv pip install -r "$INSTALL_PATH/requirements.txt" --python "$INSTALL_PATH/.venv/bin/python"
+# 5. Install Dependencies (Synchronize with Upgrade)
+echo "📦 Synchronizing dependencies (PySide6, sherpa-onnx, ctranslate2)..."
+uv pip install -r "$INSTALL_PATH/requirements.txt" --python "$INSTALL_PATH/.venv/bin/python" --upgrade
 
 # 6. Prepare models directory
 mkdir -p "$INSTALL_PATH/models"
@@ -75,3 +82,4 @@ echo "🎉 Setup successfully completed!"
 echo "You can launch Hayamimi Polyglot from Desktop or:"
 echo "  cd $INSTALL_PATH && ./start.sh"
 echo "======================================================="
+
