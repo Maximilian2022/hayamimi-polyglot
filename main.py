@@ -23,6 +23,15 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
+# Windows: Register DLL directories for robust portable loading (VC++ runtime & PySide6)
+if sys.platform == 'win32' and hasattr(os, 'add_dll_directory'):
+    _exe_dir = os.path.dirname(sys.executable)
+    if os.path.isdir(_exe_dir):
+        try:
+            os.add_dll_directory(_exe_dir)
+        except Exception:
+            pass
+
 import numpy as np
 from PySide6 import QtCore, QtWidgets
 

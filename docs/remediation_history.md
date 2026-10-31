@@ -490,3 +490,22 @@
      - これにより、ZIP 圧縮後サイズを **1866.50 MB**（約 1.82 GB）に圧縮スリム化し、2GB 制限をクリアして GitHub Releases `v1.0.0` へ上書き公開。
   3. **ポータビリティ実機検証**:
      - 一時ディレクトリに ZIP を展開し、ホスト Python 環境と完全隔離した状態で `python\python.exe -c "import main"` が一切のエラーなく即時インポート可能であることを確認。
+
+
+## 23. Windows ポータブル版の PySide6-Essentials 統一および VC++ 再頒布可能 DLL 同梱（QtCore ロードエラー是正）
+- **背景・不具合報告**:
+  - `ImportError: DLL Load failed while importing QtCore: 指定されたモジュールが見つかりません。 main.py line 27 from PySide6 import QtCore QtWidgets`
+  - 原因調査:
+    1. ビルドスクリプト内で容量削減のために `pyside6-addons` をアンインストールした際、PySide6 共通の `QtCore` 依存ファイル・メタデータが破壊されていた。
+    2. 新規/クリーンな Windows PC では Microsoft Visual C++ 2015-2022 再頒布可能パッケージ（`MSVCP140.dll` 等）が `System32` に存在しない場合があり、ロード失敗の誘因となる。
+- **実施内容**:
+  1. **PySide6-Essentials への一本化**:
+     - `requirements.txt` を `PySide6-Essentials>=6.12.0` に変更。不要な WebEngine / PDF アドオンを含まないクリーンな一括インストールを実施し、アンインストールによるファイル破壊を根絶。
+  2. **Microsoft Visual C++ 再頒布可能 DLL 群の同梱**:
+     - `msvcp140.dll`, `msvcp140_1.dll`, `msvcp140_2.dll`, `msvcp140_atomic_wait.dll`, `msvcp140_codecvt_ids.dll`, `vcomp140.dll`, `vcruntime140.dll`, `vcruntime140_1.dll`（計8ファイル）を `python/` 直下に同梱。
+     - Windows のプロセス起動ディレクトリ最優先ロード規則により、VC++ 未導入の端末でも追加インストール不要で動作保証。
+  3. **`main.py` の DLL ディレクトリ登録強化**:
+     - `from PySide6 import ...` の直前に `os.add_dll_directory` で実行バイナリディレクトリを自動登録するコードを追加。
+  4. **実機隔離検証 & GitHub Releases 上書き公開**:
+     - 解凍先での `FINAL VERIFICATION: QtCore & QtWidgets loaded perfectly!` および `main imported successfully!` を確認。
+     - `hayamimi-polyglot-v1.0.0-windows-portable.zip`（1.82 GB）を GitHub Releases `v1.0.0` に再アップロード完了。

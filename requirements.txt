@@ -20,8 +20,8 @@ sudachidict_full>=20261015
 comtypes>=1.4.17
 pycaw>=20260927
 
-# Desktop UI & Overlay (LGPL / Commercial-friendly PySide6)
-PySide6>=6.12.0
+# Desktop UI & Overlay (LGPL / Commercial-friendly PySide6 Essentials)
+PySide6-Essentials>=6.12.0
 
 # Browser View for Screen Sharing (127.0.0.1 bound only)
 fastapi>=0.162.0
