@@ -64,14 +64,31 @@ flowchart TD
 
 ---
 
-## 🚀 クイックスタート
+## 🚀 クイックスタート & インストール
 
-### Windows 11
+### 1. 新規ワンクリックセットアップ (管理者権限不要)
+PowerShell または ターミナルを開き、以下の1行を実行するだけで GUI インストーラーが立ち上がります。
+
+#### Windows 11 (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/setup.ps1 | iex
+```
+
+#### macOS (12〜15)
+```bash
+curl -fsSL https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/setup.sh | bash
+```
+
+---
+
+### 2. インストール後の起動
+
+#### Windows 11
 ```cmd
 start.bat
 ```
 
-### macOS
+#### macOS
 ```bash
 chmod +x start.sh
 ./start.sh

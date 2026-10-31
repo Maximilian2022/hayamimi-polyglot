@@ -176,7 +176,24 @@
     - **実機検証結果**:
       - 修正後のリアルタイムマイク診断において、310 チャンク中 198 チャンクの音声区間（`[SPEECH]`）を正常検出し、ASR による文字起こし（日本語テキスト出力）が 100% 成功することを確認。
 
-- 2026-10-31: 言語自動判定（_detect_src_lang）のバグ修正および多言語インテリジェント判定機構の確立
+- 2026-10-31: GitHub リポジトリ公開 (Public化) および OSS 適合セキュリティ点検・アップデート機構の完全化
+  - **GitHub Public 化**:
+    - `gh repo edit Maximilian2022/hayamimi-polyglot --visibility public --accept-visibility-change-consequences` によりリポジトリを公開（Public）に変更完了。
+    - トークン・認証不要で raw ファイル (`installer_gui.py`, `version.txt`) およびリポジトリ ZIP (`main.zip`) の取得が可能となった。
+  - **OSS 適合ダブルチェック & 個人環境除外**:
+    - `config.json`（ユーザー固有のマイクデバイス名や座標設定が保存されるファイル）を `.gitignore` に追加し、Git インデックスから除外（`git rm --cached`）。
+    - 代替として汎用設定テンプレート `config.default.json` を配備。アプリ初回起動時（`ui/control_panel.py`）およびセットアップ時（`setup.ps1` / `setup.sh`）に自動フォールバック生成する設計を確立。
+    - `core/vad.py` 内に残存していた別プロジェクトパス `E:/hayamimi/models` を完全削除。
+    - ユーザー名や API キー、機密情報等のハードコードがないことを再確認。
+  - **アップデート機構の自動同期化 (Updater & Version Check)**:
+    - `installer_gui.py`:
+      - 既存環境でのアップデート実行時に、Git リポジトリの場合は `git pull origin main`、非 Git（ZIP展開）の場合は GitHub から最新 ZIP をダウンロードして上書き更新するフローを実装。
+      - 更新時にユーザー固有設定（`config.json`）やダウンロード済み AI モデル群（`models/`）が保護される安全構造を確立。
+    - `ui/control_panel.py`:
+      - 非同期バージョンチェック機構（`check_for_updates`）を実装。起動時に GitHub の `version.txt` を安全に確認し、新バージョン公開時は「⚙️ モデル追加/更新」ボタンに「🆕 更新利用可能 (vX.X.X)」バッジを表示。
+    - `README.md`:
+      - 管理者権限不要のワンライナーコマンド（PowerShell `irm ... | iex` / macOS `curl ... | bash`）を明記。
+
   - **発生していた現象**:
     - ユーザーが英語を発声した際、原文は `[自分] THIS IS A PAIR` と正しく文字起こしされたが、翻訳結果が `↳ [EN] ThIS this is Is are the A Pair a Para Are.` となり、英語から英語へ再翻訳されてハルシネーション（壊れた繰り返しトークン）が出力された。
     - 「自動判定うごいてる？」との指摘。

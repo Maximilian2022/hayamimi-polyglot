@@ -28,6 +28,10 @@ cache/
 logs/
 *.log
 session_hotwords.txt
+config.json
+*.tmp
+_temp_extract/
+repo_download.zip
 
 # ==============================================================================
 # OS Artifacts

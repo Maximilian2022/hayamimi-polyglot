@@ -26,6 +26,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, QPoint, Signal
 
 _CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
+_CONFIG_DEFAULT_PATH = Path(__file__).resolve().parent.parent / "config.default.json"
 
 try:
     from .overlay_window import OverlayWindow, set_stealth_mode, DEFAULT_COLORS
@@ -455,11 +456,11 @@ class ControlPanel(QtWidgets.QWidget):
         bottom_layout.addWidget(self.lbl_status)
         bottom_layout.addStretch()
 
-        btn_update = QtWidgets.QPushButton("⚙️ モデル追加/更新")
-        btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #334155;")
-        btn_update.setToolTip("追加AIモデルのダウンロードやアップデートを実行します")
-        btn_update.clicked.connect(self.open_updater)
-        bottom_layout.addWidget(btn_update)
+        self.btn_update = QtWidgets.QPushButton("⚙️ モデル追加/更新")
+        self.btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #334155;")
+        self.btn_update.setToolTip("追加AIモデルのダウンロードやアップデートを実行します")
+        self.btn_update.clicked.connect(self.open_updater)
+        bottom_layout.addWidget(self.btn_update)
 
         btn_copy = QtWidgets.QPushButton("📋 議事録コピー")
         btn_copy.clicked.connect(self.copy_transcript)
@@ -469,6 +470,9 @@ class ControlPanel(QtWidgets.QWidget):
 
         self.resize(480, 680)
         self.load_settings()
+
+        # Check for updates in background (non-blocking)
+        QtCore.QTimer.singleShot(1500, self.check_for_updates)
 
     def populate_fonts(self):
         """Scan local system fonts and populate dropdown."""
@@ -550,11 +554,12 @@ class ControlPanel(QtWidgets.QWidget):
         self.save_settings()
 
     def load_settings(self):
-        """Load persistent settings from config.json."""
-        if not _CONFIG_PATH.exists():
+        """Load persistent settings from config.json (falls back to config.default.json)."""
+        target_path = _CONFIG_PATH if _CONFIG_PATH.exists() else _CONFIG_DEFAULT_PATH
+        if not target_path.exists():
             return
         try:
-            with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            with open(target_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
             ui_cfg = cfg.get("ui", {})
             font_fam = ui_cfg.get("font_family", "")
@@ -764,6 +769,33 @@ class ControlPanel(QtWidgets.QWidget):
 
     def get_selected_languages(self) -> List[str]:
         return [code for code, chk in self.lang_checkboxes.items() if chk.isChecked()]
+
+    def check_for_updates(self):
+        """Asynchronously check if a newer version is available on GitHub."""
+        import threading
+        import urllib.request
+
+        def _worker():
+            try:
+                root = Path(__file__).resolve().parent.parent
+                ver_file = root / "version.txt"
+                local_ver = ver_file.read_text(encoding="utf-8").strip() if ver_file.exists() else "1.0.0"
+
+                url = "https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/version.txt"
+                req = urllib.request.Request(url, headers={"User-Agent": "Hayamimi-Polyglot-Client"})
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    remote_ver = resp.read().decode("utf-8").strip()
+
+                if remote_ver and remote_ver != local_ver:
+                    def _notify():
+                        self.btn_update.setText(f"🆕 更新利用可能 (v{remote_ver})")
+                        self.btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #0284C7; font-weight: bold; color: #FFFFFF;")
+                        self.btn_update.setToolTip(f"最新バージョン v{remote_ver} が公開されています。クリックして更新できます。")
+                    QtCore.QMetaObject.invokeMethod(self, _notify, QtCore.Qt.ConnectionType.QueuedConnection)
+            except Exception:
+                pass  # Offline or rate limit - fail silently
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def open_updater(self):
         """Launch the setup/updater GUI to download extra models or update version."""

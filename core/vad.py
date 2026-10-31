@@ -28,10 +28,9 @@ class SileroVAD:
             if model_path is None:
                 candidates = [
                     Path(__file__).resolve().parent.parent / "models" / "silero_vad.onnx",
-                    Path(__file__).resolve().parent.parent.parent / "models" / "silero_vad.onnx",
                     Path("models") / "silero_vad.onnx",
-                    Path("E:/hayamimi/models") / "silero_vad.onnx",
-                    Path.home() / "hayamimi/models" / "silero_vad.onnx",
+                    Path.home() / ".cache" / "hayamimi-polyglot" / "models" / "silero_vad.onnx",
+                    Path("D:/hayamimi4b/models") / "silero_vad.onnx",
                 ]
                 for c in candidates:
                     if c.is_file():

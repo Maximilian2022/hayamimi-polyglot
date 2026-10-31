@@ -53,7 +53,7 @@
     }
   },
   "audio": {
-    "selected_mic_name": "エコー キャンセル スピーカーフォン (Jabra Speak 750)",
+    "selected_mic_name": "",
     "selected_languages": [
       "ja",
       "en"

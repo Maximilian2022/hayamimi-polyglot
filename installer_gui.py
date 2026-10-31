@@ -174,39 +174,62 @@ class InstallWorker(QThread):
             self.log_signal.emit(f"✓ Python 3.14 環境準備完了: {py_exe}")
             self.progress_signal.emit(40)
 
-            # 3. Deploy Application Files (Local copy OR Remote download)
+            # 3. Deploy / Synchronize Application Files (Git pull OR Remote ZIP download)
             script_dir = Path(__file__).resolve().parent
-            if (script_dir / "core" / "asr_engine.py").exists():
-                if script_dir.resolve() != self.target_dir.resolve():
-                    self.log_signal.emit("📋 ローカルからアプリケーションファイルを配置中...")
-                    for item in ["core", "ui", "dicts"]:
-                        src = script_dir / item
-                        dst = self.target_dir / item
-                        if src.exists():
-                            if dst.exists():
-                                shutil.rmtree(dst)
-                            shutil.copytree(src, dst)
-                    for item in ["main.py", "config.json", "requirements.txt", ".python-version", "version.txt", "start.bat", "start.sh", "installer_gui.py", "test_polyglot_suite.py"]:
-                        src = script_dir / item
-                        dst = self.target_dir / item
-                        if src.exists():
-                            shutil.copy2(src, dst)
-                    if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
-                        (self.target_dir / "start.sh").chmod(0o755)
-            else:
-                # One-liner execution: download latest repository files from GitHub
-                self.log_signal.emit("🌐 GitHub から最新のプログラムファイルをダウンロード中...")
+            is_same_dir = script_dir.resolve() == self.target_dir.resolve()
+            git_dir = self.target_dir / ".git"
+            has_git = bool(shutil.which("git") and git_dir.is_dir())
+
+            # Pattern 1: Target directory is an existing Git repository -> pull latest from GitHub
+            if has_git:
+                self.log_signal.emit("🔄 Git リポジトリを検出: GitHub から最新コードを取得中 (git pull)...")
+                try:
+                    res = subprocess.run(
+                        ["git", "pull", "origin", "main"],
+                        cwd=str(self.target_dir),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=30,
+                    )
+                    if res.returncode == 0:
+                        self.log_signal.emit(f"✓ GitHub から最新版への同期完了:\n  {res.stdout.strip()}")
+                    else:
+                        self.log_signal.emit(f"⚠️ git pull 警告: {res.stdout.strip()}")
+                except Exception as g_err:
+                    self.log_signal.emit(f"⚠️ git pull 実行時例外: {g_err}")
+
+            # Pattern 2: Script running from different local folder -> copy files to target
+            elif (script_dir / "core" / "asr_engine.py").exists() and not is_same_dir:
+                self.log_signal.emit("📋 ローカルからアプリケーションファイルを配置中...")
+                for item in ["core", "ui", "dicts"]:
+                    src = script_dir / item
+                    dst = self.target_dir / item
+                    if src.exists():
+                        if dst.exists():
+                            shutil.rmtree(dst)
+                        shutil.copytree(src, dst)
+                for item in ["main.py", "config.default.json", "requirements.txt", ".python-version", "version.txt", "start.bat", "start.sh", "installer_gui.py", "test_polyglot_suite.py"]:
+                    src = script_dir / item
+                    dst = self.target_dir / item
+                    if src.exists():
+                        shutil.copy2(src, dst)
+                if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
+                    (self.target_dir / "start.sh").chmod(0o755)
+
+            # Pattern 3: Not a git repo or running updater -> Download latest ZIP from GitHub (Public)
+            elif not is_same_dir or not (self.target_dir / "main.py").exists():
+                self.log_signal.emit("🌐 GitHub (Public) から最新のプログラムファイルをダウンロード中...")
                 repo_zip_url = os.environ.get("HAYAMIMI_REPO_ZIP", "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip")
                 zip_path = self.target_dir / "repo_download.zip"
                 deployed_ok = False
                 try:
                     import zipfile
                     headers = {"User-Agent": "Hayamimi-Installer"}
-                    gh_token = os.environ.get("GITHUB_TOKEN", "")
-                    if gh_token:
-                        headers["Authorization"] = f"token {gh_token}"
                     req = urllib.request.Request(repo_zip_url, headers=headers)
-                    with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
+                    with urllib.request.urlopen(req, timeout=15) as resp, open(zip_path, "wb") as f:
                         f.write(resp.read())
 
                     self.log_signal.emit("📦 プログラムファイルを展開中...")
@@ -216,6 +239,9 @@ class InstallWorker(QThread):
                         extracted_root = next(extract_temp.glob("hayamimi-polyglot*"), extract_temp)
                         for item in extracted_root.iterdir():
                             dst = self.target_dir / item.name
+                            # Preserve user config, models, and virtualenv
+                            if item.name in ("config.json", "models", ".venv"):
+                                continue
                             if dst.exists():
                                 if dst.is_dir():
                                     shutil.rmtree(dst)

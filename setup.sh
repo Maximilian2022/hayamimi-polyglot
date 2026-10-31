@@ -86,7 +86,14 @@ if [ "$CURRENT_DIR" != "$INSTALL_PATH" ] && [ -f "$CURRENT_DIR/main.py" ]; then
     cp -R "$CURRENT_DIR/ui" "$INSTALL_PATH/"
     cp -R "$CURRENT_DIR/dicts" "$INSTALL_PATH/"
     cp "$CURRENT_DIR/main.py" "$INSTALL_PATH/"
-    cp "$CURRENT_DIR/config.json" "$INSTALL_PATH/"
+    [ -f "$CURRENT_DIR/config.default.json" ] && cp "$CURRENT_DIR/config.default.json" "$INSTALL_PATH/"
+    if [ ! -f "$INSTALL_PATH/config.json" ]; then
+        if [ -f "$CURRENT_DIR/config.json" ]; then
+            cp "$CURRENT_DIR/config.json" "$INSTALL_PATH/"
+        elif [ -f "$CURRENT_DIR/config.default.json" ]; then
+            cp "$CURRENT_DIR/config.default.json" "$INSTALL_PATH/config.json"
+        fi
+    fi
     cp "$CURRENT_DIR/requirements.txt" "$INSTALL_PATH/"
     [ -f "$CURRENT_DIR/.python-version" ] && cp "$CURRENT_DIR/.python-version" "$INSTALL_PATH/"
     [ -f "$CURRENT_DIR/installer_gui.py" ] && cp "$CURRENT_DIR/installer_gui.py" "$INSTALL_PATH/"

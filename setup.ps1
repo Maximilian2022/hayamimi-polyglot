@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Hayamimi Polyglot - Setup & Updater Launcher (Windows 11)
 # Zero Admin Required. Automatically launches Unified PySide6 GUI via uv.
 # ==============================================================================
@@ -95,7 +95,16 @@ if ($ScriptDirectory -ne $targetDir) {
     Copy-Item -Path (Join-Path $ScriptDirectory "ui") -Destination (Join-Path $targetDir "ui") -Recurse -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "dicts") -Destination (Join-Path $targetDir "dicts") -Recurse -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "main.py") -Destination (Join-Path $targetDir "main.py") -Force
-    Copy-Item -Path (Join-Path $ScriptDirectory "config.json") -Destination (Join-Path $targetDir "config.json") -Force
+    Copy-Item -Path (Join-Path $ScriptDirectory "config.default.json") -Destination (Join-Path $targetDir "config.default.json") -Force -ErrorAction SilentlyContinue
+    $targetConfig = Join-Path $targetDir "config.json"
+    if (-not (Test-Path $targetConfig)) {
+        $srcConfig = Join-Path $ScriptDirectory "config.json"
+        if (Test-Path $srcConfig) {
+            Copy-Item -Path $srcConfig -Destination $targetConfig -Force
+        } else {
+            Copy-Item -Path (Join-Path $ScriptDirectory "config.default.json") -Destination $targetConfig -Force
+        }
+    }
     Copy-Item -Path (Join-Path $ScriptDirectory "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $ScriptDirectory "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
@@ -109,3 +118,4 @@ Write-Host "📦 依存パッケージを同期中..." -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "🎉 セットアップが正常に完了しました！" -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan
+
