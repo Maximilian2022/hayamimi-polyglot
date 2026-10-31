@@ -471,3 +471,22 @@
      - PySide6（LGPLv3）: wheel 形式での動的リンク・バイナリ配布であり、リバースエンジニアリングやライブラリ差し替えが担保されているため規約に完全適合。
      - FunASR / SenseVoice（FunASR Model License v1.1）: 商用利用許諾確認済み。
      - sherpa-onnx / SudachiPy (Apache 2.0), CTranslate2 / M2M-100 (MIT), ReazonSpeech (Apache 2.0): 各ライセンスと著作権表示を Third_Party_Notices.md に同梱・遵守。
+
+
+## 22. Windows ポータブル版の「完全自己完結型スタンドアロン CPython 化」および GitHub 2GB 制限対応
+- **背景・不具合報告**:
+  - Windows 版ポータブル ZIP を別マシン（Python 未導入マシン等）で起動した際、`could not find executable at C:\Python314\python.exe` というエラーが発生し起動不能になる現象が報告された。
+  - 原因調査: Python 標準の仮想環境（`.venv`）は `pyvenv.cfg` にビルド元ホストのベース Python パス（`home = C:\Python314`）を保持しており、`.venv\Scripts\python.exe` はそのホスト Python を呼び出すスタブにすぎないため、他マシンで絶対パス不整合が発生していた。
+- **実施内容**:
+  1. **完全自己完結型スタンドアロン CPython 3.12（python-build-standalone）の同梱**:
+     - ホストのレジストリや環境変数、絶対パスを一切参照しない完全ポータブルな CPython 3.12 ランタイムをパッケージ内 `python/` に内包。
+     - `requirements.txt` の全パッケージ（PySide6-Essentials, ONNX Runtime, CTranslate2, sherpa-onnx, sounddevice 等）を直接 `python/Lib/site-packages` に事前インストール。
+     - `start.bat` において、同梱の `%~dp0python\python.exe` を最優先で呼び出すよう改修。
+  2. **パッケージ容量の最適化（GitHub Releases 2GB アセット制限のクリア）**:
+     - 全モデル・全ライブラリを含むと 3.3GB に達し、GitHub Releases の上限（2,147,483,648 bytes / 2.0GB）で HTTP 422 エラーとなる問題に対応。
+     - SenseVoice Small 内に混入していた未最適化の fp32 モデル（`model.onnx`: 937MB）およびテスト用音声ファイルを除外し、高速軽量な `model.int8.onnx`（239MB）のみに厳選。
+     - 重複していた旧版モデル `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8`（630MB）を除外し、最新の `v3` に統一。
+     - 未使用の Qt WebEngine / PDF アドオン（約 400MB）をアンインストール。
+     - これにより、ZIP 圧縮後サイズを **1866.50 MB**（約 1.82 GB）に圧縮スリム化し、2GB 制限をクリアして GitHub Releases `v1.0.0` へ上書き公開。
+  3. **ポータビリティ実機検証**:
+     - 一時ディレクトリに ZIP を展開し、ホスト Python 環境と完全隔離した状態で `python\python.exe -c "import main"` が一切のエラーなく即時インポート可能であることを確認。

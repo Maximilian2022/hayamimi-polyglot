@@ -8,11 +8,13 @@ echo   Real-time Multilingual Meeting Interpreter
 echo   (100% Offline / Localhost 127.0.0.1:8844)
 echo =======================================================
 
-if exist ".venv\Scripts\python.exe" (
-    set "PYTHON_EXE=.venv\Scripts\python.exe"
+if exist "%~dp0python\python.exe" (
+    set "PYTHON_EXE=%~dp0python\python.exe"
+) else if exist "%~dp0.venv\Scripts\python.exe" (
+    set "PYTHON_EXE=%~dp0.venv\Scripts\python.exe"
 ) else (
-    echo [ERROR] Virtual environment not found at .venv
-    echo Please run setup.ps1 first.
+    echo [ERROR] Python environment not found.
+    echo Please run setup.ps1 first, or use the portable package.
     pause
     exit /b 1
 )
