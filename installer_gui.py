@@ -23,8 +23,31 @@ from PySide6.QtWidgets import (
 )
 
 # ------------------------------------------------------------------------------
-# 1. Smart Install Path Detection (Cloud Sync Avoidance)
+# 1. Smart Install Path Detection (Cloud Sync Avoidance) & True Desktop Path
 # ------------------------------------------------------------------------------
+def get_desktop_dir() -> Path:
+    if platform.system() == "Windows":
+        try:
+            import ctypes.wintypes
+            buf = ctypes.create_unicode_buffer(ctypes.wintypes.MAX_PATH)
+            # CSIDL_DESKTOPDIRECTORY = 0x0010 (handles OneDrive / Roaming redirection)
+            ctypes.windll.shell32.SHGetFolderPathW(None, 0x0010, None, 0, buf)
+            if buf.value and Path(buf.value).exists():
+                return Path(buf.value)
+        except Exception:
+            pass
+        try:
+            out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')"],
+                text=True, creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+            ).strip()
+            if out and Path(out).exists():
+                return Path(out)
+        except Exception:
+            pass
+    return Path.home() / "Desktop"
+
+
 def get_smart_install_path() -> Path:
     # If launched from existing repo directory
     script_dir = Path(__file__).resolve().parent
@@ -250,9 +273,9 @@ class InstallWorker(QThread):
             self.progress_signal.emit(85)
 
             # 6. Create Desktop Launcher
-            desktop = Path.home() / "Desktop"
+            desktop = get_desktop_dir()
+            self.log_signal.emit(f"🖥️ デスクトップランチャーを作成中... ({desktop})")
             if desktop.exists():
-                self.log_signal.emit("🖥️ デスクトップランチャーを作成中...")
                 if platform.system() == "Darwin":
                     shortcut = desktop / "Hayamimi Polyglot.command"
                     shortcut.write_text(f'#!/usr/bin/env bash\ncd "{self.target_dir}"\n./start.sh\n')
@@ -260,20 +283,22 @@ class InstallWorker(QThread):
                     self.log_signal.emit(f"✓ macOS ランチャー作成完了: {shortcut}")
                 elif platform.system() == "Windows":
                     shortcut_path = desktop / "Hayamimi Polyglot.lnk"
-                    target_bat = self.target_dir / "start.bat"
+                    target_bat = (self.target_dir / "start.bat").resolve()
                     ps_cmd = (
                         f'$ws = New-Object -ComObject WScript.Shell; '
-                        f'$s = $ws.CreateShortcut("{shortcut_path}"); '
-                        f'$s.TargetPath = "{target_bat}"; '
-                        f'$s.WorkingDirectory = "{self.target_dir}"; '
-                        f'$s.Description = "Hayamimi Polyglot - リアルタイム多言語同時並行通訳"; '
+                        f'$s = $ws.CreateShortcut(\'{shortcut_path}\'); '
+                        f'$s.TargetPath = \'{target_bat}\'; '
+                        f'$s.WorkingDirectory = \'{self.target_dir.resolve()}\'; '
+                        f'$s.Description = \'Hayamimi Polyglot - リアルタイム多言語同時並行通訳\'; '
                         f'$s.Save()'
                     )
                     try:
                         subprocess.run(["powershell", "-NoProfile", "-Command", ps_cmd], check=True, creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0)
                         self.log_signal.emit(f"✓ Windows ショートカット作成完了: {shortcut_path}")
                     except Exception as ex:
-                        self.log_signal.emit(f"⚠️ ショートカット作成スキップ: {ex}")
+                        self.log_signal.emit(f"⚠️ ショートカット作成エラー: {ex}")
+            else:
+                self.log_signal.emit(f"⚠️ デスクトップフォルダが見つかりません: {desktop}")
 
             self.progress_signal.emit(100)
             self.log_signal.emit("=========================================")

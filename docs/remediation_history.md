@@ -89,3 +89,10 @@
     - セットアップ実行時にローカルにソースコードが存在しない場合、GitHub から最新のリポジトリ ZIP アーカイブを自動ダウンロード・解凍してインストール先ディレクトリへ完全配備するリモート展開パイプラインを実装（Git clone 代替フォールバック付き）。
     - Windows デスクトップショートカット作成において、`win32com` 未導入環境でも PowerShell WScript.Shell を直接呼ぶ堅牢なフォールバックを実装。
 
+## 12. OneDrive リダイレクト環境における真のデスクトップパス検出とショートカット作成修正
+- **内容**:
+  - 課題: `Path.home() / "Desktop"`（`C:\Users\<user>\Desktop`）を固定参照していたため、OneDrive 等によりデスクトップが別ドライブ（`D:\onedrive\...\Desktop`）にリダイレクトされている環境ではフォルダ自体が存在せずショートカット作成が完全スキップされていた。
+  - `installer_gui.py`:
+    - `get_desktop_dir()` を新設し、Windows API `SHGetFolderPathW(None, CSIDL_DESKTOPDIRECTORY [0x0010], ...)` を直接呼び出すことで、OneDrive やドメインポリシーでリダイレクトされた「真のデスクトップパス」を確実に取得するよう改修。
+    - 実機テストを行い、ユーザーのデスクトップ画面に `Hayamimi Polyglot.lnk` が正常生成されることを確認。
+
