@@ -106,3 +106,11 @@
   - `start.bat` / `start.sh`:
     - アプリケーションがエラーで異常終了した際にターミナルウィンドウが一瞬で消えてしまうのを防ぐため、エラー終了時にメッセージを表示して一時停止（`pause` / `read -p`）するエラートラップ機構を Windows・macOS の双方に導入。
 
+## 14. 複数マイク環境に対応する入力マイクデバイス選択機能の実装
+- **内容**:
+  - `ui/control_panel.py`:
+    - ユーザー環境に複数のマイク（内蔵マイク、USBヘッドセット、外付けマイク、スピーカーフォン等）が接続されている場合に、使用するマイクを自在に切り替えられる「自分のマイク:」ドロップダウン（`combo_mic`）を新設。
+    - `populate_microphones()` を実装し、Windows WASAPI / macOS CoreAudio から重複を排除した綺麗なマイクデバイス一覧（および「システム既定のマイク (Default)」）を自動列挙。再読込ボタン（🔄）も追加。
+  - `main.py`:
+    - `on_start_meeting()` で選択されたマイクデバイス ID を読み取り、`DualTrackCapture(mic_device=selected_mic, ...)` に正確に伝播するよう改修。
+

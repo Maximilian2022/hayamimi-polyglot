@@ -222,13 +222,16 @@ def main():
         nonlocal capture
         # Read selected remote app
         remote_pid = panel.combo_app.currentData()
+        # Read selected microphone
+        selected_mic = panel.combo_mic.currentData()
         # Read selected languages (Max 5)
         selected_langs = panel.get_selected_languages()
         worker.set_selected_languages(selected_langs)
 
-        print(f"[Meeting] Starting... (Remote PID: {remote_pid}, Languages: {selected_langs})")
+        print(f"[Meeting] Starting... (Mic: {selected_mic}, Remote PID: {remote_pid}, Languages: {selected_langs})")
         capture = DualTrackCapture(
             on_chunk=worker.on_audio_chunk,
+            mic_device=selected_mic,
             remote_pid=remote_pid if remote_pid != 0 else None,
         )
         capture.start()

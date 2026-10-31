@@ -168,12 +168,26 @@ class ControlPanel(QtWidgets.QWidget):
         settings_layout = QtWidgets.QVBoxLayout(grp_settings)
         settings_layout.setSpacing(8)
 
+        # Self Microphone Selection
+        row_mic = QtWidgets.QHBoxLayout()
+        row_mic.addWidget(QtWidgets.QLabel("自分のマイク:"))
+        self.combo_mic = QtWidgets.QComboBox()
+        self.combo_mic.addItem("システム既定のマイク (Default)", None)
+        row_mic.addWidget(self.combo_mic, 1)
+
+        btn_refresh_mics = QtWidgets.QPushButton("🔄")
+        btn_refresh_mics.setToolTip("接続マイク一覧を再読込")
+        btn_refresh_mics.clicked.connect(self.populate_microphones)
+        row_mic.addWidget(btn_refresh_mics)
+        settings_layout.addLayout(row_mic)
+
         # Remote App Selection (Zoom/Teams/Speaker)
         row_app = QtWidgets.QHBoxLayout()
         row_app.addWidget(QtWidgets.QLabel("相手の音声:"))
         self.combo_app = QtWidgets.QComboBox()
         self.combo_app.addItem("スピーカー全体 (Default Loopback)", 0)
         self.populate_audio_processes()
+        self.populate_microphones()
         row_app.addWidget(self.combo_app, 1)
 
         btn_refresh_apps = QtWidgets.QPushButton("🔄")
@@ -306,6 +320,38 @@ class ControlPanel(QtWidgets.QWidget):
             if "zoom" in text or "teams" in text or "slack" in text:
                 self.combo_app.setCurrentIndex(i)
                 break
+
+    def populate_microphones(self):
+        """Scan active input microphones without duplicates."""
+        current_data = self.combo_mic.currentData() if hasattr(self, "combo_mic") else None
+        self.combo_mic.clear()
+        self.combo_mic.addItem("システム既定のマイク (Default)", None)
+
+        try:
+            import sounddevice as sd
+            hostapis = sd.query_hostapis()
+            # On Windows, prefer WASAPI hostapi to avoid MME/DirectSound duplicates
+            wasapi_id = next((i for i, h in enumerate(hostapis) if "WASAPI" in h["name"]), None)
+
+            devs = sd.query_devices()
+            seen_names = set()
+            for i, d in enumerate(devs):
+                if d["max_input_channels"] > 0:
+                    if wasapi_id is not None and d["hostapi"] != wasapi_id:
+                        continue
+                    name = d["name"]
+                    if name not in seen_names:
+                        seen_names.add(name)
+                        self.combo_mic.addItem(name, i)
+
+            # Restore previous selection if possible
+            if current_data is not None:
+                for idx in range(self.combo_mic.count()):
+                    if self.combo_mic.itemData(idx) == current_data:
+                        self.combo_mic.setCurrentIndex(idx)
+                        break
+        except Exception as ex:
+            print(f"[Audio] Error enumerating microphones: {ex}")
 
     def on_pin_toggled(self, checked: bool):
         self.is_pinned = checked
