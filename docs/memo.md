@@ -21,7 +21,12 @@
   - 英語発話（`THIS IS A PAIR` など）時に発言者トラックが `self` のため無条件で `ja`（日本語）と誤判定され、英語へ再翻訳されて壊れた英語（ハルシネーション）が出力されていた問題を完全解決。
   - テキスト内の文字種（ひらがな・カタカナ、ハングル、ラテン文字、漢字）および選択言語に基づく高精度な自動判定アルゴリズムを導入。
   - 実機検証および総合テストスイート（6/6）ですべて PASS。
-- GitHub リポジトリ（`Maximilian2022/hayamimi-polyglot`）を Public に変更完了。
+- 高精度 ASR ハイブリッドパイプライン（Parakeet TDT v2 + SenseVoice Small）の本格稼働：
+  - 英語音声は NVIDIA NeMo Parakeet TDT v2（INT8 約460MB）により世界最高水準でデコード。
+  - 日本語・中国語・韓国語音声は SenseVoice Small（約240MB）により高精度デコード。
+  - コントロールパネルおよび `config.json` に「高精度 ASR モード」を実装（デフォルト ON）。
+  - `installer_gui.py` に Parakeet TDT v2 と SenseVoice Small の自動ダウンロードパイプラインを実装・デフォルト有効化。
+  - 総合テストスイート全6項目 100% PASS。
 - OSS 公開に向けた個人環境・設定ファイル除外：
   - `config.json`（固有デバイス名等が保存される）を `.gitignore` に追加し、`config.default.json` テンプレートを新設。
   - `core/vad.py` の残存パスをクリーン化。

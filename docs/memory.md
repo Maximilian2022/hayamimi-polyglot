@@ -116,9 +116,9 @@ Hayamimi Polyglot で稼働するモデル群と推論エンジンの相関関�
 | 機能区分 | モデル名 | 推論エンジン (Runtime) | 役割・特徴 | 状態 |
 | :--- | :--- | :--- | :--- | :--- |
 | **VAD (音声区間検出)** | `silero_vad.onnx` | ONNX Runtime (CPU) | 32ms音声チャンクの無音/発話判定。無音時ASR停止による超低負荷化 | **稼働中** (基本) |
-| **ASR (音声認識)** | `sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17` | sherpa-onnx (INT8 Transducer) | 日英バイリンガル音声認識 + Hotwords 注入（固有名詞ブースト） | **稼働中** (基本) |
-| **ASR (多言語拡張)** | `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | sherpa-onnx | 中国語/韓国語/広東語の音声認識 + 音響イベント・感情除去 | 拡張オプション |
-| **ASR (英語特化)** | `Parakeet TDT v2` | sherpa-onnx / NeMo | 英語ネイティブ早口・専門スラング認識特化 | 構想オプション |
+| **ASR (音声認識)** | `sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17` | sherpa-onnx (INT8 Transducer) | 日英バイリンガル音声認識 + Hotwords 注入（固有名詞ブースト） | **稼働中** (軽量モード) |
+| **ASR (多言語高精度)** | `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` | sherpa-onnx | 中国語/韓国語/広東語/日本語の超高精度音声認識 + 数字正規化 | **稼働中** (高精度モード) |
+| **ASR (英語特化SOTA)** | `sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8` | sherpa-onnx / NeMo | NVIDIA NeMo SOTA 英語特化モデル。早口・スラング・専門用語を高精度認識 | **稼働中** (高精度モード) |
 | **NMT (日英特化翻訳)** | `mojicast-fugumt-ja-en-ct2` | CTranslate2 INT8 | `ja -> en` 専用。自然なビジネス英語を 20〜40ms で生成 | **稼働中** (基本) |
 | **NMT (万能相互翻訳)** | `mojicast-m2m100-ct2` (418M) | CTranslate2 INT8 | 100言語間（`en->ja`, `ja->zh`, `ja->ko` 等）のマルチキャスト並行翻訳 | **稼働中** (基本) |
 | **NMT (多言語拡張翻訳)** | `NLLB-200 600M` | CTranslate2 INT8 | 200言語対応。東南アジア言語や長文脈敬語翻訳の強化 | 構想オプション |

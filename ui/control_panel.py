@@ -46,6 +46,7 @@ class ControlPanel(QtWidgets.QWidget):
     stop_requested = Signal()
     config_changed = Signal(dict)
     hotwords_submitted = Signal(str)
+    high_accuracy_toggled = Signal(bool)
 
     def __init__(self, overlay: OverlayWindow, parent=None):
         super().__init__(parent)
@@ -236,6 +237,16 @@ class ControlPanel(QtWidgets.QWidget):
         btn_refresh_apps.clicked.connect(self.populate_audio_processes)
         row_app.addWidget(btn_refresh_apps)
         settings_layout.addLayout(row_app)
+
+        # High Accuracy ASR Mode Toggle
+        row_asr = QtWidgets.QHBoxLayout()
+        self.chk_high_acc = QtWidgets.QCheckBox("⚡ 高精度 ASR モード (英語: Parakeet TDT / 多言語: SenseVoice)")
+        self.chk_high_acc.setChecked(True)
+        self.chk_high_acc.setStyleSheet("color: #38BDF8; font-weight: bold;")
+        self.chk_high_acc.setToolTip("【推奨: デフォルトON】\n英語は世界最高水準の Parakeet TDT v2 で、他言語は SenseVoice Small で超高精度デコードします。\nOFF にすると軽量な ReazonSpeech のみで動作します。")
+        self.chk_high_acc.toggled.connect(self.on_high_accuracy_toggled)
+        row_asr.addWidget(self.chk_high_acc)
+        settings_layout.addLayout(row_asr)
 
         # Multicast Translation Languages (Max 5)
         trans_header = QtWidgets.QHBoxLayout()
@@ -613,6 +624,10 @@ class ControlPanel(QtWidgets.QWidget):
                 for chk in self.lang_checkboxes.values():
                     code = chk.property("lang_code")
                     chk.setChecked(code in saved_langs)
+
+            # Saved High Accuracy Mode
+            high_acc = cfg.get("asr", {}).get("high_accuracy_mode", True)
+            self.chk_high_acc.setChecked(bool(high_acc))
         except Exception as e:
             print(f"[Config] Error loading settings: {e}")
 
@@ -637,10 +652,17 @@ class ControlPanel(QtWidgets.QWidget):
             audio_cfg["selected_mic_name"] = self.combo_mic.currentText()
             audio_cfg["selected_languages"] = self.get_selected_languages()
 
+            asr_cfg = cfg.setdefault("asr", {})
+            asr_cfg["high_accuracy_mode"] = self.chk_high_acc.isChecked()
+
             with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception as e:
             print(f"[Config] Error saving settings: {e}")
+
+    def on_high_accuracy_toggled(self, checked: bool):
+        self.high_accuracy_toggled.emit(checked)
+        self.save_settings()
 
     def closeEvent(self, event):
         self.save_settings()

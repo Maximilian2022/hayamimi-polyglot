@@ -13,7 +13,8 @@
     "clean_on_exit": true
   },
   "asr": {
-    "model": "ReazonSpeech INT8 Zipformer",
+    "model": "SenseVoice + Parakeet TDT v2",
+    "high_accuracy_mode": true,
     "threads": 2,
     "vad_threshold": 0.5
   },

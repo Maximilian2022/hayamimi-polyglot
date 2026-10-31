@@ -286,6 +286,13 @@ def main():
     worker.subtitle_ready.connect(on_subtitle_ready)
     worker.translations_ready.connect(on_translations_ready)
 
+    # High Accuracy Mode Sync
+    asr_engine.high_accuracy_mode = panel.chk_high_acc.isChecked()
+    def on_high_acc_changed(enabled: bool):
+        asr_engine.high_accuracy_mode = enabled
+        print(f"[ASR] High Accuracy Mode set to: {enabled}")
+    panel.high_accuracy_toggled.connect(on_high_acc_changed)
+
     # Start meeting callback
     def on_start_meeting():
         nonlocal capture
