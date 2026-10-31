@@ -29,6 +29,10 @@ if [ -L "$DOCS" ] || [[ "$DOCS" == *"com~apple~CloudDocs"* ]] || [ -d "$HOME/Lib
     DEFAULT_PATH="$HOME/hayamimi-polyglot"
 fi
 
+# Enterprise Proxy / SSL Inspection compatibility
+export UV_SYSTEM_CERTS="${UV_SYSTEM_CERTS:-true}"
+export PIP_USE_FEATURE="${PIP_USE_FEATURE:-truststore}"
+
 INSTALL_PATH="${1:-$DEFAULT_PATH}"
 echo -e "${BLUE}📁 Install target:${NC} $INSTALL_PATH"
 mkdir -p "$INSTALL_PATH"

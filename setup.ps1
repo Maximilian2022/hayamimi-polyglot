@@ -17,6 +17,10 @@ param(
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
+# Enterprise Proxy / SSL Inspection compatibility (Zscaler / Palo Alto etc.)
+if (-not $env:UV_SYSTEM_CERTS) { $env:UV_SYSTEM_CERTS = "true" }
+if (-not $env:PIP_USE_FEATURE) { $env:PIP_USE_FEATURE = "truststore" }
+
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "  🎙️🌐 Hayamimi Polyglot - Setup & Updater (Windows)" -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
