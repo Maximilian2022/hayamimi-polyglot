@@ -35,6 +35,19 @@ from core.translator import LocalTranslator
 from core.vad import SileroVAD
 
 
+def find_models_dir() -> Path:
+    candidates = [
+        Path(__file__).resolve().parent / "models",
+        Path(__file__).resolve().parent.parent / "models",
+        Path(r"E:\hayamimi\models"),
+        Path("models"),
+    ]
+    for c in candidates:
+        if c.is_dir() and (c / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17").is_dir():
+            return c
+    return Path(__file__).resolve().parent / "models"
+
+
 def test_dictionary_and_hotwords():
     print("[TEST 1/5] Testing Business Dictionary & Instant Hotwords...")
     bdict = BusinessDictionary()
@@ -56,9 +69,7 @@ def test_dictionary_and_hotwords():
 
 def test_vad_and_asr():
     print("[TEST 2/5] Testing Silero VAD & ReazonSpeech ASR Engine...")
-    models_dir = Path(__file__).resolve().parent.parent / "models"
-    if not models_dir.is_dir():
-        models_dir = Path("models")
+    models_dir = find_models_dir()
 
     vad = SileroVAD(models_dir=models_dir)
     asr = BusinessASREngine(models_dir=models_dir)
@@ -85,9 +96,7 @@ def test_vad_and_asr():
 
 def test_local_translation():
     print("[TEST 3/5] Testing Local CTranslate2 Translation (FuguMT & M2M-100)...")
-    models_dir = Path(__file__).resolve().parent.parent / "models"
-    if not models_dir.is_dir():
-        models_dir = Path("models")
+    models_dir = find_models_dir()
 
     translator = LocalTranslator(models_dir=models_dir)
 
