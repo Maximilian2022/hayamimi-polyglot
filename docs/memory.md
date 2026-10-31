@@ -28,8 +28,9 @@ hayamimi-polyglot/
 ├── dicts/                  # ビジネス用語・上場企業名辞書
 ├── models/                 # AIモデル配置ディレクトリ
 ├── main.py                 # アプリケーションエントリポイント
+├── installer_gui.py        # クロスプラットフォーム (Win/Mac共通) PySide6 モダンGUIインストーラー
 ├── setup.ps1               # Windows 11 向け WPF ダークテーマGUIインストーラー & アップデータ
-├── setup.sh                # macOS 向けスマートインストーラー & アップデータ
+├── setup.sh                # macOS 向けスマートインストーラー (uv経由でinstaller_gui.pyを即時起動)
 ├── start.bat / start.sh    # ワンクリック起動ランチャー
 ├── test_polyglot_suite.py  # 全機能総合検証テストスイート
 └── version.txt             # セマンティックバージョニング (1.0.0)

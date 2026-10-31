@@ -377,6 +377,8 @@ $btnInstall.Add_Click({
                 Copy-Item -Path (Join-Path $sourceDir "main.py") -Destination (Join-Path $targetDir "main.py") -Force
                 Copy-Item -Path (Join-Path $sourceDir "config.json") -Destination (Join-Path $targetDir "config.json") -Force
                 Copy-Item -Path (Join-Path $sourceDir "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
+                Copy-Item -Path (Join-Path $sourceDir ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
+                Copy-Item -Path (Join-Path $sourceDir "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
                 Copy-Item -Path (Join-Path $sourceDir "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
                 Copy-Item -Path (Join-Path $sourceDir "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
             }

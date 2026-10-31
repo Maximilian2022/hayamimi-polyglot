@@ -24,8 +24,9 @@
    - `ui/overlay_window.py`: 最前面・クリックスルー・WDA/Cocoa画面共有ステルス保護透過字幕
    - `ui/web_server.py`: 127.0.0.1:8844 SSE 画面共有ビュー（サニタイズ・CORS遮断）
 3. **インストーラー & アップデータ**:
+   - `installer_gui.py`: macOS・Windows 共通 PySide6 モダンGUIインストーラー。Windows 版の WPF デザインと完全同一のダークテーマ・大画面ログ表示（140px以上保証）・モデル選択・プログレスバーを搭載。
    - `setup.ps1`: Windows 11 WPF ダークテーマGUI。OneDrive自動検知・退避、モデル選択DL、uv自走構築、アップデート時クリーン再構築（`uv venv --clear`）。
-   - `setup.sh`: macOS 向けスマートインストーラー。iCloud Drive自動検知・退避、アップデート時クリーン再構築。
+   - `setup.sh`: macOS 向けスマートインストーラー。`uv run` 経由で `installer_gui.py` を即時ネイティブ起動（--cli フォールバック付き）。iCloud Drive自動検知・退避、アップデート時クリーン再構築。
    - `start.bat` / `start.sh`: ワンクリック起動ランチャー。
 
 ---

@@ -62,3 +62,15 @@
     - 新設した `.python-version` およびテストスイート `test_polyglot_suite.py` の同期コピーを追加。
     - ローカルモデルキャッシュ（`models`）からの自動配備ロジックおよび SenseVoice Small 多言語モデル（`--with-sense-voice`）の自動ダウンロードロジックを実装し、Windows インストーラーと同等の機能を確保。
 
+## 9. macOS 向け PySide6 クロスプラットフォーム統一 GUI インストーラーの実装
+- **内容**:
+  - `installer_gui.py` を新設:
+    - Windows 版（`setup.ps1`）と完全に同一のダークテーマデザイン、モデル構成チェックボックス、プログレスバー、140px以上の広々とした等幅フォントログエリア、フォルダ参照ピッカー、自動起動オプションを PySide6 で構築。
+    - macOS（iCloud Drive 自動検知・退避）、Windows（OneDrive 自動検知・退避）の双方に対応。
+    - マルチスレッド（QThread）による非同期セットアップ実行で、UI のフリーズゼロ・リアルタイム進行表示を実現。
+  - `setup.sh`:
+    - macOS ユーザーが `./setup.sh` を実行した際、`uv run --python 3.14 --with PySide6 python installer_gui.py` を自動起動し、システムに Python や PySide6 が無くても一瞬で Windows と全く同じモダン GUI ウィンドウが立ち上がるように改修。
+    - `--cli` や `--unattended` 引数、またはヘッドレス環境では自動的に CLI モードへフォールバックするハイブリッド設計を確立。
+  - `setup.ps1`:
+    - 配備対象ファイルリストに `installer_gui.py` を追加。
+

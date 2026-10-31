@@ -42,6 +42,18 @@ fi
 
 echo -e "${GREEN}✓ uv verified:${NC} $(command -v uv)"
 
+CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Launch Modern GUI Installer if GUI is available and not in CLI mode
+if [ "$1" != "--cli" ] && [ "$1" != "--unattended" ] && [ -f "$CURRENT_DIR/installer_gui.py" ]; then
+    echo -e "${CYAN}🚀 Launching Hayamimi Polyglot Modern GUI Installer (PySide6)...${NC}"
+    exec uv run --python 3.14 --with PySide6 python "$CURRENT_DIR/installer_gui.py"
+fi
+
+# ------------------------------------------------------------------------------
+# CLI Fallback Mode (for headless / SSH / --cli)
+# ------------------------------------------------------------------------------
+
 # 3. Create or Clean-Rebuild Python 3.14 Virtual Environment
 VENV_DIR="$INSTALL_PATH/.venv"
 if [ -d "$VENV_DIR" ]; then
@@ -66,6 +78,7 @@ if [ "$CURRENT_DIR" != "$INSTALL_PATH" ] && [ -f "$CURRENT_DIR/main.py" ]; then
     cp "$CURRENT_DIR/config.json" "$INSTALL_PATH/"
     cp "$CURRENT_DIR/requirements.txt" "$INSTALL_PATH/"
     [ -f "$CURRENT_DIR/.python-version" ] && cp "$CURRENT_DIR/.python-version" "$INSTALL_PATH/"
+    [ -f "$CURRENT_DIR/installer_gui.py" ] && cp "$CURRENT_DIR/installer_gui.py" "$INSTALL_PATH/"
     [ -f "$CURRENT_DIR/test_polyglot_suite.py" ] && cp "$CURRENT_DIR/test_polyglot_suite.py" "$INSTALL_PATH/"
     cp "$CURRENT_DIR/start.sh" "$INSTALL_PATH/"
     cp "$CURRENT_DIR/version.txt" "$INSTALL_PATH/"
