@@ -16,9 +16,9 @@
 
 ---
 
-## 2. セキュリティ 7原則 (Zero Telemetry & Privacy)
+## 2. セキュリティ (Zero Telemetry & Privacy)
 
-本システムは、企業の厳格なコンプライアンス審査をクリアするため、以下のセキュリティ原則を技術的に保証しています：
+本システムは、以下のセキュリティ原則に則っています：
 
 1. **音声ゼロトレース (Zero Disk Audio Recording)**:
    - 音声波形（PCM/WAV）はディスクに一切保存されず、メモリ上の揮発性リングバッファで処理後、即座に破棄されます。
@@ -31,7 +31,7 @@
 5. **画面共有ステルス保護 (Stealth Mode)**:
    - OS ネイティブ API（Windows: `SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE)` / macOS: `NSWindowSharingNone`）により、Zoom、Teams、Google Meet の画面共有やスクリーンショットから字幕および設定画面を完全自動で透明除外します。
 6. **ログ平文保護 & DOM XSS 対策**:
-   - デバッグログやコンソール出力に顧客の会話内容・文字起こし全文を平文で永続化しません。ブラウザ共有ビュー (`/view`) では安全なサニタイズ描画を徹底しています。
+   - デバッグログやコンソール出力に会話内容・文字起こし全文を平文で永続化しません。ブラウザ共有ビュー (`/view`) では安全なサニタイズ描画を徹底しています。
 7. **商用クリーンライセンス保証**:
    - 非商用ライセンス（CC-BY-NC等）を完全排除し、商用利用が公式に許諾されたクリーンなライセンス（Apache 2.0 / MIT / CC-BY 4.0 / FunASR Model License 等）のみを採用しています。詳細は [Third_Party_Notices.md](../Third_Party_Notices.md) をご確認ください。
 
