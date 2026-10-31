@@ -24,7 +24,7 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-          - os: macos-14
+          - os: macos-latest
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -80,7 +80,7 @@ jobs:
           - os: windows-latest
             pkg_name: hayamimi-polyglot-v1.0.0-windows-portable.zip
             build_script: scripts/build_portable_win.py
-          - os: macos-14
+          - os: macos-latest
             pkg_name: hayamimi-polyglot-v1.0.0-macos-portable.zip
             build_script: scripts/build_portable_mac.py
     runs-on: ${{ matrix.os }}
