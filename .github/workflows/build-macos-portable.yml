@@ -2,6 +2,11 @@ name: Build macOS Arm64 Portable Package
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/build-macos-portable.yml'
 
 permissions:
   contents: write
