@@ -24,6 +24,6 @@ pycaw>=20240210
 PySide6>=6.6.0
 
 # Browser View for Screen Sharing (127.0.0.1 bound only)
-fastapi>=0.109.0
+fastapi>=0.162.0
 uvicorn>=0.27.0
 
