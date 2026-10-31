@@ -43,11 +43,22 @@ fi
 echo -e "${GREEN}✓ uv verified:${NC} $(command -v uv)"
 
 CURRENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+GUI_SCRIPT="$CURRENT_DIR/installer_gui.py"
+
+# If running via Web one-liner (curl ... | bash), fetch installer_gui.py to /tmp
+if [ ! -f "$GUI_SCRIPT" ]; then
+    echo -e "${CYAN}⬇️ Fetching latest GUI installer from remote...${NC}"
+    TEMP_DIR="/tmp/hayamimi-setup"
+    mkdir -p "$TEMP_DIR"
+    GUI_SCRIPT="$TEMP_DIR/installer_gui.py"
+    REMOTE_URL="${HAYAMIMI_GUI_URL:-https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/installer_gui.py}"
+    curl -sSfL "$REMOTE_URL" -o "$GUI_SCRIPT" || true
+fi
 
 # Launch Modern GUI Installer if GUI is available and not in CLI mode
-if [ "$1" != "--cli" ] && [ "$1" != "--unattended" ] && [ -f "$CURRENT_DIR/installer_gui.py" ]; then
+if [ "$1" != "--cli" ] && [ "$1" != "--unattended" ] && [ -f "$GUI_SCRIPT" ]; then
     echo -e "${CYAN}🚀 Launching Hayamimi Polyglot Modern GUI Installer (PySide6)...${NC}"
-    exec uv run --python 3.14 --with PySide6 python "$CURRENT_DIR/installer_gui.py"
+    exec uv run --python 3.14 --with PySide6 python "$GUI_SCRIPT"
 fi
 
 # ------------------------------------------------------------------------------

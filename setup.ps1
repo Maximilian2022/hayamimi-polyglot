@@ -39,7 +39,7 @@ if (-not (Test-Path $uvExe)) {
 
 Write-Host "✓ uv 検出完了: $uvExe" -ForegroundColor Green
 
-# 2. Determine Script Directory
+# 2. Determine Script Directory & installer_gui.py
 $ScriptDirectory = if ($PSScriptRoot) {
     $PSScriptRoot
 } elseif ($MyInvocation.MyCommand.Path) {
@@ -49,6 +49,20 @@ $ScriptDirectory = if ($PSScriptRoot) {
 }
 
 $guiScript = Join-Path $ScriptDirectory "installer_gui.py"
+
+# If running via Web one-liner (irm ... | iex), fetch installer_gui.py to TEMP
+if (-not (Test-Path $guiScript)) {
+    Write-Host "⬇️ リモートから最新の GUI インストーラーを取得中..." -ForegroundColor Cyan
+    $tempDir = Join-Path $env:TEMP "hayamimi-setup"
+    if (-not (Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+    $guiScript = Join-Path $tempDir "installer_gui.py"
+    $remoteGuiUrl = if ($env:HAYAMIMI_GUI_URL) { $env:HAYAMIMI_GUI_URL } else { "https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/installer_gui.py" }
+    try {
+        Invoke-WebRequest -Uri $remoteGuiUrl -OutFile $guiScript -UseBasicParsing
+    } catch {
+        Write-Warning "GUI インストーラーのリモート取得に失敗しました: $_"
+    }
+}
 
 # 3. Launch Unified PySide6 GUI Installer
 if (-not $Cli -and -not $Unattended -and (Test-Path $guiScript)) {

@@ -80,3 +80,12 @@
     - これにより、PowerShell のファイルエンコーディング差異、Runspace スレッド競合、ボタン描画崩れのリスクが根本的に解消され、Windows でも Mac でも 100% 同一の高品質なダークテーマ GUI が起動するように改修。
     - `--cli` / `--unattended` 引数によるコマンドライン自動セットアップ機能も維持。
 
+## 11. Web ワンライナー実行（新規端末）に対応する自動リモート取得・展開パイプラインの実装
+- **内容**:
+  - 課題: `irm ... | iex`（Windows）や `curl ... | bash`（Mac）などの Web ワンライナー実行時には、ローカルディスクに `installer_gui.py` やアプリケーションコード（`core/` 等）がまだ存在しないため起動・配備が失敗する致命的な穴を特定。
+  - `setup.ps1` / `setup.sh`:
+    - ローカルに `installer_gui.py` が存在しない場合、GitHub から一時ディレクトリ（`$env:TEMP` / `/tmp`）に `installer_gui.py` を自動取得し、即座に `uv run --with PySide6` で新UIを立ち上げるよう改修。
+  - `installer_gui.py`:
+    - セットアップ実行時にローカルにソースコードが存在しない場合、GitHub から最新のリポジトリ ZIP アーカイブを自動ダウンロード・解凍してインストール先ディレクトリへ完全配備するリモート展開パイプラインを実装（Git clone 代替フォールバック付き）。
+    - Windows デスクトップショートカット作成において、`win32com` 未導入環境でも PowerShell WScript.Shell を直接呼ぶ堅牢なフォールバックを実装。
+

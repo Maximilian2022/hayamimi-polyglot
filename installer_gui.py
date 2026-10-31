@@ -132,24 +132,70 @@ class InstallWorker(QThread):
             self.log_signal.emit(f"✓ Python 3.14 環境準備完了: {py_exe}")
             self.progress_signal.emit(40)
 
-            # 3. Copy Application Files if target differs
+            # 3. Deploy Application Files (Local copy OR Remote download)
             script_dir = Path(__file__).resolve().parent
-            if (script_dir / "core" / "asr_engine.py").exists() and script_dir.resolve() != self.target_dir.resolve():
-                self.log_signal.emit("📋 アプリケーションファイルを配置中...")
-                for item in ["core", "ui", "dicts"]:
-                    src = script_dir / item
-                    dst = self.target_dir / item
-                    if src.exists():
-                        if dst.exists():
-                            shutil.rmtree(dst)
-                        shutil.copytree(src, dst)
-                for item in ["main.py", "config.json", "requirements.txt", ".python-version", "version.txt", "start.bat", "start.sh", "test_polyglot_suite.py"]:
-                    src = script_dir / item
-                    dst = self.target_dir / item
-                    if src.exists():
-                        shutil.copy2(src, dst)
-                if platform.system() != "Windows":
-                    (self.target_dir / "start.sh").chmod(0o755)
+            if (script_dir / "core" / "asr_engine.py").exists():
+                if script_dir.resolve() != self.target_dir.resolve():
+                    self.log_signal.emit("📋 ローカルからアプリケーションファイルを配置中...")
+                    for item in ["core", "ui", "dicts"]:
+                        src = script_dir / item
+                        dst = self.target_dir / item
+                        if src.exists():
+                            if dst.exists():
+                                shutil.rmtree(dst)
+                            shutil.copytree(src, dst)
+                    for item in ["main.py", "config.json", "requirements.txt", ".python-version", "version.txt", "start.bat", "start.sh", "installer_gui.py", "test_polyglot_suite.py"]:
+                        src = script_dir / item
+                        dst = self.target_dir / item
+                        if src.exists():
+                            shutil.copy2(src, dst)
+                    if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
+                        (self.target_dir / "start.sh").chmod(0o755)
+            else:
+                # One-liner execution: download latest repository files from GitHub
+                self.log_signal.emit("🌐 GitHub から最新のプログラムファイルをダウンロード中...")
+                repo_zip_url = os.environ.get("HAYAMIMI_REPO_ZIP", "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip")
+                zip_path = self.target_dir / "repo_download.zip"
+                deployed_ok = False
+                try:
+                    import zipfile
+                    headers = {"User-Agent": "Hayamimi-Installer"}
+                    gh_token = os.environ.get("GITHUB_TOKEN", "")
+                    if gh_token:
+                        headers["Authorization"] = f"token {gh_token}"
+                    req = urllib.request.Request(repo_zip_url, headers=headers)
+                    with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as f:
+                        f.write(resp.read())
+
+                    self.log_signal.emit("📦 プログラムファイルを展開中...")
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        extract_temp = self.target_dir / "_temp_extract"
+                        zip_ref.extractall(extract_temp)
+                        extracted_root = next(extract_temp.glob("hayamimi-polyglot*"), extract_temp)
+                        for item in extracted_root.iterdir():
+                            dst = self.target_dir / item.name
+                            if dst.exists():
+                                if dst.is_dir():
+                                    shutil.rmtree(dst)
+                                else:
+                                    dst.unlink()
+                            shutil.move(str(item), str(dst))
+                        shutil.rmtree(extract_temp, ignore_errors=True)
+                    zip_path.unlink(missing_ok=True)
+                    self.log_signal.emit("✓ プログラムファイルのダウンロード・展開が完了しました！")
+                    if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
+                        (self.target_dir / "start.sh").chmod(0o755)
+                    deployed_ok = True
+                except Exception as ex:
+                    self.log_signal.emit(f"⚠️ リモートZIP取得失敗 ({ex})。git clone による代替を試行中...")
+
+                if not deployed_ok and shutil.which("git"):
+                    try:
+                        self.log_signal.emit("🔄 git clone による代替取得中...")
+                        subprocess.run(["git", "clone", "https://github.com/Maximilian2022/hayamimi-polyglot.git", str(self.target_dir)], check=True)
+                        self.log_signal.emit("✓ git clone による配置が完了しました！")
+                    except Exception as g_ex:
+                        self.log_signal.emit(f"❌ ファイル取得に失敗しました: {g_ex}")
 
             # 4. Synchronize Dependencies
             self.log_signal.emit("📦 依存ライブラリを同期中 (PySide6, sherpa-onnx, ctranslate2)...")
