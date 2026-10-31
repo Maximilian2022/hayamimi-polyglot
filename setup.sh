@@ -33,7 +33,28 @@ fi
 export UV_SYSTEM_CERTS="${UV_SYSTEM_CERTS:-true}"
 export PIP_USE_FEATURE="${PIP_USE_FEATURE:-truststore}"
 
-INSTALL_PATH="${1:-$DEFAULT_PATH}"
+UNATTENDED=false
+CLI_MODE=false
+CUSTOM_PATH=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --unattended)
+            UNATTENDED=true
+            CLI_MODE=true
+            ;;
+        --cli)
+            CLI_MODE=true
+            ;;
+        *)
+            if [ -z "$CUSTOM_PATH" ] && [[ "$arg" != -* ]]; then
+                CUSTOM_PATH="$arg"
+            fi
+            ;;
+    esac
+done
+
+INSTALL_PATH="${CUSTOM_PATH:-$DEFAULT_PATH}"
 echo -e "${BLUE}📁 Install target:${NC} $INSTALL_PATH"
 mkdir -p "$INSTALL_PATH"
 
@@ -58,8 +79,8 @@ if [ ! -f "$GUI_SCRIPT" ]; then
     curl -sSfL "$REMOTE_URL" -o "$GUI_SCRIPT" || true
 fi
 
-# Launch Modern GUI Installer if GUI is available and not in CLI mode
-if [ "$1" != "--cli" ] && [ "$1" != "--unattended" ] && [ -f "$GUI_SCRIPT" ]; then
+# Launch Modern GUI Installer if GUI is available and not in CLI / unattended mode
+if [ "$CLI_MODE" != "true" ] && [ -f "$GUI_SCRIPT" ]; then
     echo -e "${CYAN}🚀 Launching Hayamimi Polyglot Modern GUI Installer (PySide6)...${NC}"
     exec uv run --python 3.14 --with PySide6 python "$GUI_SCRIPT"
 fi
