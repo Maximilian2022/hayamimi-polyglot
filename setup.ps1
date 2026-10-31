@@ -23,10 +23,11 @@ public static extern IntPtr GetConsoleWindow();
 public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 '@ -ErrorAction SilentlyContinue
 
-# Load WPF assemblies
+# Load WPF & Windows Forms assemblies
 Add-Type -AssemblyName PresentationFramework
 Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Windows.Forms
 
 # Determine script directory reliably (supporting local execution and PSScriptRoot)
 $ScriptDirectory = if ($PSScriptRoot) {
@@ -239,19 +240,42 @@ function Append-Log([string]$msg) {
 
 # Browse Folder
 $btnBrowse.Add_Click({
-    $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dlg.Description = "Hayamimi Polyglot のインストール先フォルダを選択してください"
-    $dlg.SelectedPath = $txtPath.Text
-    if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-        $txtPath.Text = $dlg.SelectedPath
-        if (Test-Path (Join-Path $txtPath.Text "main.py")) {
-            $btnInstall.Content = "🔄 アップデート / 設定適用を開始"
-            $lblPathNotice.Text = "✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）"
-            $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::DodgerBlue
-        } else {
-            $btnInstall.Content = "🚀 セットアップを開始する"
-            $lblPathNotice.Text = "💡 クラウド同期（OneDrive等）を避けたローカル推奨パスを自動設定しました"
-            $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::MediumSeaGreen
+    try {
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = "Hayamimi Polyglot のインストール先フォルダを選択してください"
+        if ($txtPath.Text -and (Test-Path $txtPath.Text)) {
+            $dlg.SelectedPath = $txtPath.Text
+        }
+        $dlg.ShowNewFolderButton = $true
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
+            $selected = $dlg.SelectedPath
+            $txtPath.Text = $selected
+            if (Test-Path (Join-Path $selected "main.py")) {
+                $btnInstall.Content = "🔄 アップデート / 設定適用を開始"
+                $lblPathNotice.Text = "✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）"
+                $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::DodgerBlue
+            } else {
+                $btnInstall.Content = "🚀 セットアップを開始する"
+                $lblPathNotice.Text = "💡 クラウド同期（OneDrive等）を避けたローカル推奨パスを自動設定しました"
+                $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::MediumSeaGreen
+            }
+        }
+    } catch {
+        # Fallback to COM Shell.Application if Forms dialog encounters any issue
+        $shell = New-Object -ComObject Shell.Application
+        $folder = $shell.BrowseForFolder(0, "Hayamimi Polyglot のインストール先フォルダを選択してください", 0, 0)
+        if ($folder) {
+            $selected = $folder.Self.Path
+            $txtPath.Text = $selected
+            if (Test-Path (Join-Path $selected "main.py")) {
+                $btnInstall.Content = "🔄 アップデート / 設定適用を開始"
+                $lblPathNotice.Text = "✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）"
+                $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::DodgerBlue
+            } else {
+                $btnInstall.Content = "🚀 セットアップを開始する"
+                $lblPathNotice.Text = "💡 クラウド同期（OneDrive等）を避けたローカル推奨パスを自動設定しました"
+                $lblPathNotice.Foreground = [System.Windows.Media.Brushes]::MediumSeaGreen
+            }
         }
     }
 })

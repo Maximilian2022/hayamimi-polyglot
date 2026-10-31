@@ -39,3 +39,10 @@
     - スクリプト最上位スコープにて `$ScriptDirectory`（`$PSScriptRoot` 優先、フォールバックとして `$PSCommandPath` / `Get-Location`）を確実に定義・保持する設計に変更。
     - ローカルからの直接実行（`.\setup.ps1`）および Web ワンライナー実行（`irm ... | iex`）の双方で例外なく安全にディレクトリ判定・ファイルコピーが行われるように改修。
 
+## 6. setup.ps1 フォルダ参照ダイアログのアセンブリ未読込エラー修正
+- **内容**:
+  - `setup.ps1`:
+    - インストール先「参照」ボタン押下時に `[System.Windows.Forms.FolderBrowserDialog]` のアセンブリが読み込まれておらず例外となっていた問題を解消。
+    - スクリプト先頭に `Add-Type -AssemblyName System.Windows.Forms` を追加。
+    - さらに例外発生時のフォールバックとして Windows 標準 COM オブジェクト `Shell.Application` によるフォルダ参照ダイアログを実装し、いかなる Windows / PowerShell 環境でも確実にフォルダ選択ができるよう二重化。
+
