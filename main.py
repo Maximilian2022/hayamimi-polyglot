@@ -71,6 +71,8 @@ class SessionWorker(QtCore.QObject):
 
     def set_selected_languages(self, langs: List[str]):
         self.selected_languages = langs[:5]
+        # Synchronize ASR models with active meeting languages (Lazy Loading)
+        self.asr_engine.set_active_languages(self.selected_languages)
 
     def _detect_src_lang(self, track: str, text: str) -> str:
         """
@@ -189,7 +191,15 @@ class SessionWorker(QtCore.QObject):
         """Transcribe and multicast translate to all other selected languages."""
         dur = len(segment) / 16000.0
         print(f"[ASR:{track}] Decoding segment ({dur:.2f}s)...")
-        text = self.asr_engine.transcribe_pcm(segment)
+
+        # Smart hint: If remote track and only one non-Japanese target language is active
+        hint_lang = None
+        if track == "remote":
+            non_ja = [l for l in self.selected_languages if l != "ja"]
+            if len(non_ja) == 1:
+                hint_lang = non_ja[0]
+
+        text = self.asr_engine.transcribe_pcm(segment, hint_lang=hint_lang)
         if not text or not text.strip():
             print(f"[ASR:{track}] (No speech recognized or noise)")
             return
@@ -274,6 +284,15 @@ def main():
 
     worker = SessionWorker(asr_engine=asr_engine, vad=vad, translator=translator)
     capture: Optional[DualTrackCapture] = None
+
+    # Sync initial languages and listen for changes
+    initial_langs = panel.get_selected_languages()
+    worker.set_selected_languages(initial_langs)
+
+    def on_config_changed(cfg: dict):
+        if "languages" in cfg:
+            worker.set_selected_languages(cfg["languages"])
+    panel.config_changed.connect(on_config_changed)
 
     # Connect Signals
     def on_subtitle_ready(track: str, text: str, translations: dict):

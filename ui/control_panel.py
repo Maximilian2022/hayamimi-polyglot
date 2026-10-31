@@ -789,6 +789,9 @@ class ControlPanel(QtWidgets.QWidget):
             else:
                 chk.setEnabled(True)
 
+        self.save_settings()
+        self.config_changed.emit({"languages": selected})
+
     def get_selected_languages(self) -> List[str]:
         return [code for code, chk in self.lang_checkboxes.items() if chk.isChecked()]
 

@@ -102,12 +102,13 @@ class InstallWorker(QThread):
     progress_signal = Signal(int)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, target_dir: Path, clean_venv: bool, with_parakeet: bool, with_sense_voice: bool, should_launch: bool):
+    def __init__(self, target_dir: Path, clean_venv: bool, with_parakeet: bool, with_sense_voice: bool, with_zipformer_vi: bool, should_launch: bool):
         super().__init__()
         self.target_dir = target_dir
         self.clean_venv = clean_venv
         self.with_parakeet = with_parakeet
         self.with_sense_voice = with_sense_voice
+        self.with_zipformer_vi = with_zipformer_vi
         self.should_launch = should_launch
 
     def run(self):
@@ -297,8 +298,10 @@ class InstallWorker(QThread):
                         "silero_vad.onnx",
                         "mojicast-m2m100-ct2",
                         "mojicast-fugumt-ja-en-ct2",
+                        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
                         "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
                         "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+                        "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09",
                     ]:
                         src = cache / m
                         dst = models_dir / m
@@ -310,27 +313,28 @@ class InstallWorker(QThread):
                                 shutil.copy2(src, dst)
                     break
 
-            # Parakeet TDT v2 (High-accuracy English ASR)
+            # Parakeet TDT v3 (High-accuracy English & European 25-lang ASR: en, fr, de, es)
             if self.with_parakeet:
-                p_dir = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
-                if not p_dir.exists():
-                    self.log_signal.emit("⚡ Parakeet TDT v2 英語特化ASRモデル (約460MB) をダウンロード中...")
-                    p_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2"
+                p_dir_v3 = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+                p_dir_v2 = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+                if not p_dir_v3.exists() and not p_dir_v2.exists():
+                    self.log_signal.emit("⚡ Parakeet TDT v3 欧州25言語・英語特化ASRモデル (約480MB) をダウンロード中...")
+                    p_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
                     tar_path = models_dir / "parakeet.tar.bz2"
                     try:
                         urllib.request.urlretrieve(p_url, tar_path)
                         with tarfile.open(tar_path, "r:bz2") as tar:
                             tar.extractall(models_dir)
                         tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ Parakeet TDT v2 配備完了！")
+                        self.log_signal.emit("✓ Parakeet TDT v3 配備完了！")
                     except Exception as e:
                         self.log_signal.emit(f"⚠️ Parakeet ダウンロード失敗 (スキップします): {e}")
 
-            # SenseVoice Small (Multilingual ASR)
+            # SenseVoice Small (Multilingual ASR: zh, ko, ja, en, yue)
             if self.with_sense_voice:
                 sv_dir = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
                 if not sv_dir.exists():
-                    self.log_signal.emit("🚀 SenseVoice Small 多言語ASRモデル (約240MB) をダウンロード中...")
+                    self.log_signal.emit("🚀 SenseVoice Small アジア圏多言語ASRモデル (約240MB) をダウンロード中...")
                     sv_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
                     tar_path = models_dir / "sense-voice.tar.bz2"
                     try:
@@ -341,6 +345,22 @@ class InstallWorker(QThread):
                         self.log_signal.emit("✓ SenseVoice Small 配備完了！")
                     except Exception as e:
                         self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗 (スキップします): {e}")
+
+            # Zipformer-vi 30M (Vietnamese dedicated ASR)
+            if self.with_zipformer_vi:
+                vi_dir = models_dir / "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
+                if not vi_dir.exists():
+                    self.log_signal.emit("🇻🇳 Zipformer-vi 30M ベトナム語特化ASRモデル (約35MB) をダウンロード中...")
+                    vi_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09.tar.bz2"
+                    tar_path = models_dir / "zipformer-vi.tar.bz2"
+                    try:
+                        urllib.request.urlretrieve(vi_url, tar_path)
+                        with tarfile.open(tar_path, "r:bz2") as tar:
+                            tar.extractall(models_dir)
+                        tar_path.unlink(missing_ok=True)
+                        self.log_signal.emit("✓ Zipformer-vi 配備完了！")
+                    except Exception as e:
+                        self.log_signal.emit(f"⚠️ Zipformer-vi ダウンロード失敗 (スキップします): {e}")
 
             self.progress_signal.emit(85)
 
@@ -461,21 +481,29 @@ class InstallerWindow(QMainWindow):
         group_models_layout.addWidget(self.chk_base)
         group_models_layout.addWidget(lbl_base_sub)
 
-        self.chk_parakeet = QCheckBox("⚡ 高精度 英語特化 ASR (Parakeet TDT v2: 約 460MB)")
+        self.chk_parakeet = QCheckBox("⚡ 高精度 英語・欧州25言語 ASR (Parakeet TDT v3: 約 480MB)")
         self.chk_parakeet.setChecked(True)
         self.chk_parakeet.setEnabled(True)
-        lbl_parakeet_sub = QLabel("  • NVIDIA NeMo SOTA 英語特化モデル。早口英語やビジネス略語の認識精度が劇的に向上")
+        lbl_parakeet_sub = QLabel("  • NVIDIA NeMo SOTAモデル。英・仏・独・西ネイティブ会話をCPU INT8で高速認識")
         lbl_parakeet_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_parakeet)
         group_models_layout.addWidget(lbl_parakeet_sub)
 
-        self.chk_sensevoice = QCheckBox("🚀 超高速 多言語 ASR (SenseVoice Small: 約 240MB)")
+        self.chk_sensevoice = QCheckBox("🚀 アジア圏多言語 ASR (SenseVoice Small: 約 240MB)")
         self.chk_sensevoice.setChecked(True)
         self.chk_sensevoice.setEnabled(True)
-        lbl_sv_sub = QLabel("  • アジア系言語（中・韓・広東語等）および日本語の超高精度音声認識・数字正規化")
+        lbl_sv_sub = QLabel("  • 中国語・韓国語・広東語ネイティブ対応。漢字・ITN数字正規化")
         lbl_sv_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_sensevoice)
         group_models_layout.addWidget(lbl_sv_sub)
+
+        self.chk_zipformer_vi = QCheckBox("🇻🇳 ベトナム語特化 ASR (Zipformer-vi 30M: 約 35MB)")
+        self.chk_zipformer_vi.setChecked(True)
+        self.chk_zipformer_vi.setEnabled(True)
+        lbl_vi_sub = QLabel("  • ベトナム語の6声調を完全識別する超軽量・高精度モデル")
+        lbl_vi_sub.setObjectName("lblSub")
+        group_models_layout.addWidget(self.chk_zipformer_vi)
+        group_models_layout.addWidget(lbl_vi_sub)
 
         self.chk_nllb = QCheckBox("🌐 高精度 アジア・多言語翻訳 (NLLB-200 600M: +約 600MB)")
         self.chk_nllb.setChecked(False)
@@ -667,12 +695,14 @@ class InstallerWindow(QMainWindow):
         self.chk_parakeet.setEnabled(False)
         self.chk_nllb.setEnabled(False)
         self.chk_sensevoice.setEnabled(False)
+        self.chk_zipformer_vi.setEnabled(False)
 
         self.worker = InstallWorker(
             target_dir=target_dir,
             clean_venv=self.chk_clean_venv.isChecked(),
             with_parakeet=self.chk_parakeet.isChecked(),
             with_sense_voice=self.chk_sensevoice.isChecked(),
+            with_zipformer_vi=self.chk_zipformer_vi.isChecked(),
             should_launch=self.chk_launch.isChecked()
         )
         self.worker.log_signal.connect(self.append_log)

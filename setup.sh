@@ -127,6 +127,10 @@ if [ -n "$LOCAL_MODELS_CACHE" ] && [ "$LOCAL_MODELS_CACHE" != "$MODELS_DIR" ]; t
         "silero_vad.onnx"
         "mojicast-m2m100-ct2"
         "mojicast-fugumt-ja-en-ct2"
+        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+        "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
     )
     for model in "${BASE_MODELS[@]}"; do
         if [ -e "$LOCAL_MODELS_CACHE/$model" ] && [ ! -e "$MODELS_DIR/$model" ]; then
@@ -134,6 +138,21 @@ if [ -n "$LOCAL_MODELS_CACHE" ] && [ "$LOCAL_MODELS_CACHE" != "$MODELS_DIR" ]; t
             cp -R "$LOCAL_MODELS_CACHE/$model" "$MODELS_DIR/"
         fi
     done
+fi
+
+# Download Parakeet TDT v3 if requested
+PARAKEET_DIR="$MODELS_DIR/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+if [ ! -d "$PARAKEET_DIR" ] && [[ "$*" == *"--with-parakeet"* ]]; then
+    echo -e "${CYAN}⚡ Downloading Parakeet TDT v3 European 25-lang ASR model...${NC}"
+    P_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
+    TAR_FILE="$MODELS_DIR/parakeet.tar.bz2"
+    if curl -L "$P_URL" -o "$TAR_FILE"; then
+        tar -xjf "$TAR_FILE" -C "$MODELS_DIR"
+        rm -f "$TAR_FILE"
+        echo -e "${GREEN}✓ Parakeet TDT v3 deployed successfully!${NC}"
+    else
+        echo -e "${YELLOW}⚠️ Failed to download Parakeet (skipping).${NC}"
+    fi
 fi
 
 # Download SenseVoice Small if requested or absent
@@ -148,6 +167,21 @@ if [ ! -d "$SENSEVOICE_DIR" ] && [[ "$*" == *"--with-sense-voice"* ]]; then
         echo -e "${GREEN}✓ SenseVoice Small deployed successfully!${NC}"
     else
         echo -e "${YELLOW}⚠️ Failed to download SenseVoice Small (skipping).${NC}"
+    fi
+fi
+
+# Download Zipformer-vi if requested
+VI_DIR="$MODELS_DIR/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
+if [ ! -d "$VI_DIR" ] && [[ "$*" == *"--with-zipformer-vi"* ]]; then
+    echo -e "${CYAN}🇻🇳 Downloading Zipformer-vi 30M Vietnamese ASR model...${NC}"
+    VI_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09.tar.bz2"
+    TAR_FILE="$MODELS_DIR/zipformer-vi.tar.bz2"
+    if curl -L "$VI_URL" -o "$TAR_FILE"; then
+        tar -xjf "$TAR_FILE" -C "$MODELS_DIR"
+        rm -f "$TAR_FILE"
+        echo -e "${GREEN}✓ Zipformer-vi deployed successfully!${NC}"
+    else
+        echo -e "${YELLOW}⚠️ Failed to download Zipformer-vi (skipping).${NC}"
     fi
 fi
 

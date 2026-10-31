@@ -8,6 +8,9 @@
 param(
     [switch]$Cli,
     [switch]$Unattended,
+    [switch]$WithParakeet,
+    [switch]$WithSenseVoice,
+    [switch]$WithZipformerVi,
     [string]$InstallPath = ""
 )
 
@@ -108,6 +111,7 @@ if ($ScriptDirectory -ne $targetDir) {
     Copy-Item -Path (Join-Path $ScriptDirectory "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $ScriptDirectory "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path (Join-Path $ScriptDirectory "test_polyglot_suite.py") -Destination (Join-Path $targetDir "test_polyglot_suite.py") -Force -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $ScriptDirectory "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
 }
@@ -115,7 +119,40 @@ if ($ScriptDirectory -ne $targetDir) {
 Write-Host "📦 依存パッケージを同期中..." -ForegroundColor Cyan
 & $uvExe pip install -r (Join-Path $targetDir "requirements.txt") --python $pyExe --upgrade | Out-Null
 
+# Deploy Models
+$modelsDir = Join-Path $targetDir "models"
+if (-not (Test-Path $modelsDir)) { New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null }
+
+$localCacheList = @(
+    (Join-Path $ScriptDirectory "models"),
+    "D:\hayamimi4b\models",
+    "$env:USERPROFILE\hayamimi4b\models"
+)
+foreach ($cache in $localCacheList) {
+    if ((Test-Path $cache) -and ($cache -ne $modelsDir)) {
+        Write-Host "📦 ローカルキャッシュ ($cache) からモデルを配備中..." -ForegroundColor Cyan
+        $modelNames = @(
+            "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
+            "silero_vad.onnx",
+            "mojicast-m2m100-ct2",
+            "mojicast-fugumt-ja-en-ct2",
+            "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+            "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+            "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
+        )
+        foreach ($m in $modelNames) {
+            $srcM = Join-Path $cache $m
+            $dstM = Join-Path $modelsDir $m
+            if ((Test-Path $srcM) -and (-not (Test-Path $dstM))) {
+                Write-Host "  -> 配備: $m" -ForegroundColor Gray
+                Copy-Item -Path $srcM -Destination $dstM -Recurse -Force
+            }
+        }
+        break
+    }
+}
+
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host "🎉 セットアップが正常に完了しました！" -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan
-
