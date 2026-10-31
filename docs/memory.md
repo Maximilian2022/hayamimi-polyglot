@@ -27,6 +27,11 @@ hayamimi-polyglot/
 │   └── web_server.py       # 127.0.0.1:8844 自マシン限定 SSE リアルタイム共有ビュー
 ├── dicts/                  # ビジネス用語・上場企業名辞書
 ├── models/                 # AIモデル配置ディレクトリ
+├── docs/
+│   ├── languages.md        # 言語・モデル相関仕様書 (ASR/NMT/推論エンジン完全マップ)
+│   ├── memory.md           # 長期記憶・設計決定事項
+│   ├── memo.md             # 一時作業メモ
+│   └── remediation_history.md # 変更・改修履歴
 ├── main.py                 # アプリケーションエントリポイント
 ├── installer_gui.py        # クロスプラットフォーム (Win/Mac共通) PySide6 モダンGUIインストーラー
 ├── setup.ps1               # Windows 11 向けランチャー (uv経由でinstaller_gui.pyを即時起動)
