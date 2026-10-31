@@ -88,6 +88,12 @@ def main():
     dst_wheels.mkdir(parents=True, exist_ok=True)
     print("📦 Collecting macOS arm64 offline wheels via pip...")
 
+    # Build pure wheel for sudachidict-full first (sdist -> py3-none-any wheel)
+    print("  -> Building wheel for sudachidict-full>=20261015...")
+    subprocess.check_call([
+        "pip", "wheel", "--no-deps", "-w", str(dst_wheels), "sudachidict-full>=20261015"
+    ])
+
     pkgs = [
         "numpy>=2.5.4",
         "sounddevice>=0.5.6",
@@ -97,7 +103,6 @@ def main():
         "ctranslate2>=4.8.4",
         "sentencepiece>=0.2.2",
         "sudachipy>=0.7.0",
-        "sudachidict-full",
         "PySide6-Essentials>=6.9.0,<6.10.0",
         "fastapi>=0.162.0",
         "uvicorn>=0.54.0",
@@ -116,10 +121,10 @@ def main():
         res = subprocess.call(cmd)
         if res != 0:
             cmd_fallback = [
-                "pip", "download",
+                "pip", "wheel",
                 "--platform", "macosx_12_0_arm64",
                 "--python-version", "3.12",
-                "-d", str(dst_wheels),
+                "-w", str(dst_wheels),
                 pkg
             ]
             subprocess.check_call(cmd_fallback)

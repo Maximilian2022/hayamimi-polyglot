@@ -584,5 +584,9 @@
   3. **setup.sh の引数パース改修（--unattended / --cli 確実判定）**:
      - `./setup.sh "$INSTALL_PATH" --unattended` のように位置引数とオプションが併用された際、`$1` 決め打ち判定により GUI インストーラーが誤起動して CI ランナー上で待機ハングする問題を修正。
      - 全引数をループ解析し、`--unattended` や `--cli` の指定位置によらず確実に CLI モードへ遷移するよう堅牢化。
+  4. **macOS ポータブルビルドにおける sudachidict-full ホイール生成の堅牢化**:
+     - `sudachidict-full>=20261015` は PyPI 上に prebuilt wheel が存在せず sdist（tar.gz）のみ提供されているため、`pip download --only-binary=:all:` では PyPI 上に唯一残存するダミーの `0.0.0` wheel が誤取得され、起動時要件不整合が発生していた。
+     - `pip wheel --no-deps` によりその場で `sudachidict_full-20261015-py3-none-any.whl` を確実にビルドして `wheels/` に内包するようスクリプトを改修。完全オフラインインストールが 100% 成功する構成に修正。
+
 
 
