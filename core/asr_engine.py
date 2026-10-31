@@ -49,13 +49,13 @@ class BusinessASREngine:
         hotwords_file: Path | str | None = None,
         threads: int = 2,
         initial_languages: Optional[List[str]] = None,
+        high_accuracy_mode: bool = True,
     ):
         if models_dir is None:
             candidates = [
                 Path(__file__).resolve().parent.parent / "models",
                 Path(__file__).resolve().parent.parent.parent / "models",
                 Path("models"),
-                Path("D:/hayamimi4b/models"),
             ]
             for c in candidates:
                 if c.is_dir() and (c / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17").is_dir():
@@ -65,16 +65,15 @@ class BusinessASREngine:
         self.models_dir = Path(models_dir) if models_dir else Path("models")
         self.threads = threads
         self.hotwords_file = Path(hotwords_file) if hotwords_file else None
-        self.high_accuracy_mode: bool = True  # High-accuracy routing enabled by default
+        self._high_accuracy_mode: bool = high_accuracy_mode
 
         # Recognizer slots (loaded lazily on demand)
         self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & fallback)
         self.sense_voice_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # Chinese, Korean, LID probe
         self.parakeet_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # English, French, German, Spanish
-        self.zipformer_vi_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # Vietnamese
 
         # Business post-decoding dictionary
-        self.dictionary = BusinessDictionary()
+        self.dictionary: BusinessDictionary = BusinessDictionary()
         self.replacement_rules: Dict[str, str] = {}
 
         # Active meeting languages
@@ -85,6 +84,16 @@ class BusinessASREngine:
 
         # Synchronize model loading with active languages
         self.sync_active_models()
+
+    @property
+    def high_accuracy_mode(self) -> bool:
+        return self._high_accuracy_mode
+
+    @high_accuracy_mode.setter
+    def high_accuracy_mode(self, value: bool) -> None:
+        if self._high_accuracy_mode != value:
+            self._high_accuracy_mode = value
+            self.sync_active_models()
 
     def set_active_languages(self, langs: List[str]) -> None:
         """
@@ -103,7 +112,6 @@ class BusinessASREngine:
             # High-accuracy mode OFF: keep only ReazonSpeech, release others
             self._unload_parakeet()
             self._unload_sense_voice()
-            self._unload_zipformer_vi()
             return
 
         # 1. Parakeet TDT v3 (English, French, German, Spanish)
@@ -120,25 +128,15 @@ class BusinessASREngine:
         elif not needs_sense_voice and self.sense_voice_recognizer is not None:
             self._unload_sense_voice()
 
-        # 3. Zipformer-vi (Vietnamese)
-        needs_vi = "vi" in self.active_languages
-        if needs_vi and self.zipformer_vi_recognizer is None:
-            self._init_zipformer_vi()
-        elif not needs_vi and self.zipformer_vi_recognizer is not None:
-            self._unload_zipformer_vi()
-
     # --------------------------------------------------------------------------
     # Initializers & Unloaders
     # --------------------------------------------------------------------------
-    def _init_reazon(self) -> None:
-        """Initialize sherpa-onnx with ReazonSpeech INT8 model for Japanese."""
-        if self.recognizer is not None:
-            return
-
+    def _create_reazon_recognizer(self) -> Optional[sherpa_onnx.OfflineRecognizer]:
+        """Create a new ReazonSpeech OfflineRecognizer instance."""
         rz_dir = self.models_dir / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17"
         if not rz_dir.is_dir():
             print(f"[ASR] Warning: ReazonSpeech model directory not found at {rz_dir}")
-            return
+            return None
 
         encoder = _find_file(rz_dir, "*encoder*int8*.onnx") or _find_file(rz_dir, "*encoder*.onnx")
         decoder = _find_file(rz_dir, "*decoder*int8*.onnx") or _find_file(rz_dir, "*decoder*.onnx")
@@ -147,26 +145,35 @@ class BusinessASREngine:
 
         if not (encoder and decoder and joiner and tokens.is_file()):
             print("[ASR] Incomplete ReazonSpeech model files in", rz_dir)
-            return
+            return None
 
         hw_file_str = str(self.hotwords_file) if (self.hotwords_file and self.hotwords_file.is_file()) else ""
 
         try:
-            self.recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+            return sherpa_onnx.OfflineRecognizer.from_transducer(
                 encoder=str(encoder),
                 decoder=str(decoder),
                 joiner=str(joiner),
                 tokens=str(tokens),
                 num_threads=self.threads,
                 model_type="",
-                decoding_method="modified_beam_search",
+                decoding_method="modified_beam_search" if hw_file_str else "greedy_search",
                 hotwords_file=hw_file_str,
                 hotwords_score=2.0,
                 modeling_unit="cjkchar",
             )
-            print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese & Hotwords)")
         except Exception as exc:
             print(f"[ASR] Failed to initialize ReazonSpeech recognizer: {exc}")
+            return None
+
+    def _init_reazon(self) -> None:
+        """Initialize sherpa-onnx with ReazonSpeech INT8 model for Japanese."""
+        if self.recognizer is not None:
+            return
+        rec = self._create_reazon_recognizer()
+        if rec is not None:
+            self.recognizer = rec
+            print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese & Hotwords)")
 
     def _init_parakeet(self) -> None:
         """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European 25 langs)."""
@@ -252,51 +259,14 @@ class BusinessASREngine:
             gc.collect()
             print("[ASR] [Unloaded] SenseVoice Small (freed RAM)")
 
-    def _init_zipformer_vi(self) -> None:
-        """Initialize sherpa-onnx Zipformer-vi 30M INT8 for Vietnamese ASR."""
-        if self.zipformer_vi_recognizer is not None:
-            return
-
-        vi_dir = self.models_dir / "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
-        if not vi_dir.is_dir():
-            print(f"[ASR] Warning: Zipformer-vi directory not found at {vi_dir}")
-            return
-
-        encoder = _find_file(vi_dir, "*encoder*int8*.onnx") or _find_file(vi_dir, "*encoder*.onnx")
-        decoder = _find_file(vi_dir, "*decoder*.onnx")
-        joiner = _find_file(vi_dir, "*joiner*int8*.onnx") or _find_file(vi_dir, "*joiner*.onnx")
-        tokens = vi_dir / "tokens.txt"
-
-        if not (encoder and decoder and joiner and tokens.is_file()):
-            print("[ASR] Incomplete Zipformer-vi model files in", vi_dir)
-            return
-
-        try:
-            self.zipformer_vi_recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
-                encoder=str(encoder),
-                decoder=str(decoder),
-                joiner=str(joiner),
-                tokens=str(tokens),
-                num_threads=self.threads,
-                model_type="",
-                decoding_method="greedy_search",
-            )
-            print("[ASR] [Loaded] Zipformer-vi 30M INT8 for Vietnamese ASR.")
-        except Exception as exc:
-            print(f"[ASR] Failed to initialize Zipformer-vi recognizer: {exc}")
-
-    def _unload_zipformer_vi(self) -> None:
-        """Release Zipformer-vi recognizer from RAM."""
-        if self.zipformer_vi_recognizer is not None:
-            self.zipformer_vi_recognizer = None
-            gc.collect()
-            print("[ASR] [Unloaded] Zipformer-vi (freed RAM)")
-
-    def update_hotwords(self, hotwords_file: Path | str) -> None:
-        """Update hotwords and reload ReazonSpeech recognizer."""
-        self.hotwords_file = Path(hotwords_file)
-        self.recognizer = None
-        self._init_reazon()
+    def update_hotwords(self, hotwords_file: Optional[Path | str] = None) -> None:
+        """Update hotwords and reload ReazonSpeech recognizer atomically without dropping audio."""
+        self.hotwords_file = Path(hotwords_file) if hotwords_file else None
+        new_rec = self._create_reazon_recognizer()
+        if new_rec is not None:
+            self.recognizer = new_rec
+            name = self.hotwords_file.name if self.hotwords_file else "cleared"
+            print(f"[ASR] [Updated] Hotwords applied successfully: {name}")
 
     def set_replacements(self, rules: Dict[str, str]) -> None:
         """Set post-decoding word replacement rules."""
@@ -312,7 +282,6 @@ class BusinessASREngine:
           - Japanese (ja): ReazonSpeech INT8 Zipformer (Hotwords & Dictionary enabled)
           - European languages (en, fr, de, es): Parakeet TDT 0.6B v3 INT8
           - Asian languages (zh, ko): SenseVoice Small
-          - Vietnamese (vi): Zipformer-vi 30M INT8
         """
         if len(pcm_16k_mono) == 0:
             return ""
@@ -328,16 +297,7 @@ class BusinessASREngine:
         # Strategy A: Direct Hint-based Routing
         # ----------------------------------------------------------------------
         if hint_lang:
-            if hint_lang == "vi" and self.zipformer_vi_recognizer:
-                try:
-                    stream = self.zipformer_vi_recognizer.create_stream()
-                    stream.accept_waveform(16000, pcm_16k_mono)
-                    self.zipformer_vi_recognizer.decode_stream(stream)
-                    raw_text = stream.result.text.strip()
-                except Exception as ex:
-                    print(f"[ASR:Hint:vi] Decode error: {ex}")
-
-            elif hint_lang in ("en", "fr", "de", "es") and self.parakeet_recognizer:
+            if hint_lang in ("en", "fr", "de", "es") and self.parakeet_recognizer:
                 try:
                     stream = self.parakeet_recognizer.create_stream()
                     stream.accept_waveform(16000, pcm_16k_mono)
@@ -387,21 +347,7 @@ class BusinessASREngine:
                 except Exception as ex:
                     print(f"[ASR:AsianProbe] Error: {ex}")
 
-            # 2. Vietnamese via Zipformer-vi (if vi active and not yet resolved)
-            if not raw_text and "vi" in self.active_languages and self.zipformer_vi_recognizer:
-                # If only vi and ja are active, or if likely Vietnamese
-                if not any(l in self.active_languages for l in ("en", "fr", "de", "es")):
-                    try:
-                        vi_s = self.zipformer_vi_recognizer.create_stream()
-                        vi_s.accept_waveform(16000, pcm_16k_mono)
-                        self.zipformer_vi_recognizer.decode_stream(vi_s)
-                        vi_text = vi_s.result.text.strip()
-                        if vi_text:
-                            raw_text = vi_text
-                    except Exception as vi_ex:
-                        print(f"[ASR:Vietnamese] Error: {vi_ex}")
-
-            # 3. Japanese vs European Language Disambiguation
+            # 2. Japanese vs European Language Disambiguation
             if not raw_text:
                 t_rz = ""
                 if self.recognizer:
@@ -432,14 +378,6 @@ class BusinessASREngine:
                     except Exception as p_ex:
                         print(f"[ASR:Parakeet] Error: {p_ex}")
                         raw_text = t_rz
-                elif "vi" in self.active_languages and self.zipformer_vi_recognizer:
-                    try:
-                        vi_s = self.zipformer_vi_recognizer.create_stream()
-                        vi_s.accept_waveform(16000, pcm_16k_mono)
-                        self.zipformer_vi_recognizer.decode_stream(vi_s)
-                        raw_text = vi_s.result.text.strip() or t_rz
-                    except Exception:
-                        raw_text = t_rz
                 else:
                     raw_text = t_rz
 
@@ -463,5 +401,8 @@ class BusinessASREngine:
         for misheard, correct in self.replacement_rules.items():
             if misheard in normalized_text:
                 normalized_text = normalized_text.replace(misheard, correct)
+
+        if hasattr(self, "dictionary") and self.dictionary:
+            normalized_text = self.dictionary.apply_replacements(normalized_text)
 
         return normalized_text

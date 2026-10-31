@@ -6,7 +6,7 @@
 [![Zero Telemetry](https://img.shields.io/badge/Telemetry-Zero%20(100%25%20Offline)-brightgreen.svg)]()
 
 > [!NOTE]
-> **Hayamimi Polyglot** は、[oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) をベースに、主要 8 言語（日・英・中・韓・仏・独・西・越）の「直接聞き取り（ASR）」、Meta M2M-100 による「相互同時マルチキャスト翻訳（NMT）」、遅延ロード（Lazy Loading / オンデマンド起動）、およびクロスプラットフォーム統一 GUI インストーラー等を大幅に拡張・実装した派生プロジェクト（Hayamimi Fork）です。
+> **Hayamimi Polyglot** は、[oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) をベースに、主要 7 言語（日・英・中・韓・仏・独・西）の「直接聞き取り（ASR）」、Meta M2M-100 による「相互同時マルチキャスト翻訳（NMT）」、遅延ロード（Lazy Loading / オンデマンド起動）、およびクロスプラットフォーム統一 GUI インストーラー等を大幅に拡張・実装した派生プロジェクト（Hayamimi Fork）です。
 
 **完全ローカル・低遅延・高セキュリティな多言語ビジネス会議向けリアルタイム同時並行通訳システム**
 
@@ -15,10 +15,22 @@
 
 ---
 
+## ⚠️ 重要：免責事項・注意事項（必ずお読みください）
+
+1. **AIによる参考訳の明示**:  
+   本ソフトウェアが提供する文字起こしおよび翻訳字幕は、**PCローカルで動作するAIモデルによる自動推論結果（参考訳）** です。正確性・完全性・文脈適合性を保証する公式な通訳ではありません。重大な意思決定、法的拘束力を伴う商談、契約交渉等の場面では、必ず専門の通訳者による確認を行ってください。
+2. **ミーティング利用時のエチケット（相手への告知推奨）**:  
+   実際のWeb会議（Zoom, Teams, Google Meet等）や対面ミーティングで使用する際は、プライバシーと信頼関係の観点から、**事前に相手側へ「AI字幕・文字起こし支援ツールを利用している旨」を告知し、合意を得て利用することを推奨します**。
+3. **外部通信ゼロの範囲と注釈**:  
+   本システムは**「音声入力（ヒアリング） ➔ 音声認識（ASR） ➔ 機械翻訳（NMT） ➔ 字幕表示」の一連のリアルタイム通訳パイプライン処理において外部通信を一切行いません（完全オフライン・ローカル完結）**。  
+   ※ 初回セットアップ時のモデルダウンロードや、手動での最新版確認・インストーラー起動等の明示的なアクション時を除きます。
+
+---
+
 ## ✨ 主な特長
 
 1. **最大5言語の相互並行通訳（マルチキャスト翻訳）**:
-   - 会議参加言語（日本語 🇯🇵, 英語 🇺🇸, 中国語 🇨🇳, 韓国語 🇰🇷, 仏語 🇫🇷, 独語 🇩🇪, 西語 🇪🇸, 越語 🇻🇳）を自由に選択。
+   - 会議参加言語（日本語 🇯🇵, 英語 🇺🇸, 中国語 🇨🇳, 韓国語 🇰🇷, 仏語 🇫🇷, 独語 🇩🇪, 西語 🇪🇸）を自由に選択。
    - 誰かが発言すると、**自動的に選択された他の全言語（最大4言語）へ並列翻訳**され、字幕に同時表示されます。
    - 追加ダウンロードなしで100言語以上の相互双方向翻訳が可能です（Meta M2M-100 418M INT8 & FuguMT 内蔵）。
 
@@ -34,15 +46,16 @@
 
 4. **Instant Hotwords ＆ クリーンビジネス辞書**:
    - 会議直前にアジェンダやスライドテキストをコピペするだけで、固有名詞・プロジェクトコード・略語を自動抽出し、ASR認識精度を即時ブースト。
+   - 会議終了時にはディスクおよびメモリ上の一時ホットワードデータを自動完全抹消（データ衛生保証）。
    - `SudachiDict (Full)` (Apache 2.0) ＋ 金融庁EDINET上場企業名オープンデータを標準内包。
 
 5. **企業導入のためのセキュリティ7原則（Zero Telemetry）**:
    - **音声ゼロトレース**: 音声波形（PCM）のディスク保存機能は完全排除。メモリ上でASR処理後即破棄。
-   - **外部通信ゼロ**: テレメトリ、外部CDN、クラウドAPIへの通信は1バイトも行いません。
+   - **通訳パイプライン外部通信ゼロ**: 音声認識から翻訳まで1バイトも外部送信しません。
    - **自マシン限定バインド**: 内部Webサーバーは `127.0.0.1:8844` のみに厳格バインド（LAN内盗聴・DNS Rebinding遮断）。
    - **ログ平文保護**: 運用ログに顧客の会話内容を出力しません。
    - **DOM XSS対策**: ブラウザビューでの安全なサニタイズ描画。
-   - **クリーンライセンス保証**: 全コンポーネントを商用フリー（Apache 2.0 / MIT）で統一。
+   - **商用クリーンライセンス保証**: 非商用ライセンス（CC-BY-NC等）を完全排除し、商用利用可能なモデル・ライブラリのみで構成。
 
 ---
 
@@ -57,7 +70,7 @@ flowchart TD
 
     subgraph Core_Engine["Core Engine (完全ローカル・CPU最適化)"]
         DualTrack --> RingBuffer["揮発性メモリ (リングバッファ)\n※ファイル保存なし"]
-        RingBuffer --> ASR["ASR Engine (sherpa-onnx INT8)\nReazonSpeech Zipformer"]
+        RingBuffer --> ASR["ASR Engine (sherpa-onnx INT8)\nReazonSpeech / SenseVoice / Parakeet"]
         ASR --> VAD["Silero VAD (ONNX)"]
         DictEngine["ビジネス辞書 & Instant Hotwords\n(SudachiDict / アジェンダ抽出)"] -.->|Hotwords注入| ASR
         ASR -->|文末確定 Finalized| NMT["マルチキャスト翻訳 (CTranslate2 INT8)\nFuguMT (ja->en) & M2M-100 (100言語相互)"]
@@ -109,7 +122,8 @@ chmod +x start.sh
 ## 📄 ライセンス & 謝辞 (Credits)
 
 - **ベースプロジェクト**: [oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) (MIT License) - 素晴らしい原案・基礎設計に深く感謝いたします。
-- **Hayamimi Polyglot**: 本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が完全に許諾されています。
+- **Hayamimi Polyglot**: 本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が許諾されています。
+- **サードパーティライセンス表示**: 使用している全モデル・ライブラリ・オープンデータのライセンス条文および著作権表示は [Third_Party_Notices.md](Third_Party_Notices.md) をご確認ください。
 
 ---
 
@@ -118,5 +132,5 @@ chmod +x start.sh
 - [行動規範 (Code of Conduct)](.github/CODE_OF_CONDUCT.md)
 - [貢献ガイドライン (Contributing Guide)](.github/CONTRIBUTING.md)
 - [セキュリティポリシー (Security Policy)](.github/SECURITY.md)
+- [第三者ライセンス通知 (Third Party Notices)](Third_Party_Notices.md)
 - [言語・モデル相関仕様書](docs/languages.md)
-

@@ -10,7 +10,6 @@ param(
     [switch]$Unattended,
     [switch]$WithParakeet,
     [switch]$WithSenseVoice,
-    [switch]$WithZipformerVi,
     [string]$InstallPath = ""
 )
 
@@ -56,8 +55,9 @@ $guiScript = Join-Path $ScriptDirectory "installer_gui.py"
 # If running via Web one-liner (irm ... | iex), fetch installer_gui.py to TEMP
 if (-not (Test-Path $guiScript)) {
     Write-Host "⬇️ リモートから最新の GUI インストーラーを取得中..." -ForegroundColor Cyan
-    $tempDir = Join-Path $env:TEMP "hayamimi-setup"
-    if (-not (Test-Path $tempDir)) { New-Item -ItemType Directory -Path $tempDir -Force | Out-Null }
+    $randSuffix = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
+    $tempDir = Join-Path $env:TEMP "hayamimi-setup-$randSuffix"
+    New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     $guiScript = Join-Path $tempDir "installer_gui.py"
     $remoteGuiUrl = if ($env:HAYAMIMI_GUI_URL) { $env:HAYAMIMI_GUI_URL } else { "https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/installer_gui.py" }
     try {
@@ -138,8 +138,7 @@ foreach ($cache in $localCacheList) {
             "mojicast-fugumt-ja-en-ct2",
             "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
             "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
-            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
-            "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
+            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
         )
         foreach ($m in $modelNames) {
             $srcM = Join-Path $cache $m

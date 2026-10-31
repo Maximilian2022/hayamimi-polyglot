@@ -48,8 +48,7 @@ GUI_SCRIPT="$CURRENT_DIR/installer_gui.py"
 # If running via Web one-liner (curl ... | bash), fetch installer_gui.py to /tmp
 if [ ! -f "$GUI_SCRIPT" ]; then
     echo -e "${CYAN}⬇️ Fetching latest GUI installer from remote...${NC}"
-    TEMP_DIR="/tmp/hayamimi-setup"
-    mkdir -p "$TEMP_DIR"
+    TEMP_DIR="$(mktemp -d /tmp/hayamimi-setup-XXXXXX)"
     GUI_SCRIPT="$TEMP_DIR/installer_gui.py"
     REMOTE_URL="${HAYAMIMI_GUI_URL:-https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/installer_gui.py}"
     curl -sSfL "$REMOTE_URL" -o "$GUI_SCRIPT" || true
@@ -130,7 +129,6 @@ if [ -n "$LOCAL_MODELS_CACHE" ] && [ "$LOCAL_MODELS_CACHE" != "$MODELS_DIR" ]; t
         "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
         "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
         "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-        "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
     )
     for model in "${BASE_MODELS[@]}"; do
         if [ -e "$LOCAL_MODELS_CACHE/$model" ] && [ ! -e "$MODELS_DIR/$model" ]; then
@@ -167,21 +165,6 @@ if [ ! -d "$SENSEVOICE_DIR" ] && [[ "$*" == *"--with-sense-voice"* ]]; then
         echo -e "${GREEN}✓ SenseVoice Small deployed successfully!${NC}"
     else
         echo -e "${YELLOW}⚠️ Failed to download SenseVoice Small (skipping).${NC}"
-    fi
-fi
-
-# Download Zipformer-vi if requested
-VI_DIR="$MODELS_DIR/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
-if [ ! -d "$VI_DIR" ] && [[ "$*" == *"--with-zipformer-vi"* ]]; then
-    echo -e "${CYAN}🇻🇳 Downloading Zipformer-vi 30M Vietnamese ASR model...${NC}"
-    VI_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09.tar.bz2"
-    TAR_FILE="$MODELS_DIR/zipformer-vi.tar.bz2"
-    if curl -L "$VI_URL" -o "$TAR_FILE"; then
-        tar -xjf "$TAR_FILE" -C "$MODELS_DIR"
-        rm -f "$TAR_FILE"
-        echo -e "${GREEN}✓ Zipformer-vi deployed successfully!${NC}"
-    else
-        echo -e "${YELLOW}⚠️ Failed to download Zipformer-vi (skipping).${NC}"
     fi
 fi
 

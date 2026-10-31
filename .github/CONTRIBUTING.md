@@ -82,9 +82,9 @@ PYTHONIOENCODING="utf-8" .venv/bin/python test_polyglot_suite.py
 ### 検証項目一覧:
 - [TEST 1/7] ビジネス辞書 ＆ Instant Hotwords 抽出
 - [TEST 2/7] Silero VAD (音声区間検出)
-- [TEST 3/7] 全 8 言語 (日・英・中・韓・仏・独・西・越) ASR 音声デコード
+- [TEST 3/7] 主要 7 言語 (日・英・中・韓・仏・独・西) ASR 音声デコード
 - [TEST 4/7] 遅延ロード (Lazy Loading) ＆ 動的メモリ解放
-- [TEST 5/7] 全 8 言語 M2M-100 / FuguMT 相互同時翻訳
+- [TEST 5/7] 主要 7 言語 M2M-100 / FuguMT 相互同時翻訳
 - [TEST 6/7] 多言語自動判定 (LID: Language Identification)
 - [TEST 7/7] セキュリティ制約 (録音ファイルゼロ、127.0.0.1 バインド)
 

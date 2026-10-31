@@ -77,12 +77,13 @@ class BusinessDictionary:
             morphemes = tokenizer.tokenize(text, self._split_mode or SplitMode.C)
             for m in morphemes:
                 pos = m.part_of_speech()
-                # Extract proper nouns (固有名詞), general nouns with length >= 2
+                # Extract proper nouns (固有名詞) and common nouns (普通名詞) with length >= 2
                 surface = m.surface().strip()
                 if len(surface) < 2:
                     continue
                 if pos[0] == "名詞":
-                    if pos[1] in ("固有名詞", "一般") and pos[2] not in ("助数詞", "代名詞"):
+                    # Sudachi / UniDic: pos[1] is '固有名詞' or '普通名詞', pos[2] can be '一般'
+                    if (pos[1] in ("固有名詞", "普通名詞", "一般")) and pos[2] not in ("助数詞", "代名詞"):
                         if surface not in seen and not surface.isdigit():
                             seen.add(surface)
                             extracted.append(surface)
@@ -100,10 +101,14 @@ class BusinessDictionary:
         """Set dynamic hotwords for the current meeting."""
         self.instant_hotwords = [k.strip() for k in keywords if k.strip()]
 
+    def clear_instant_hotwords(self) -> None:
+        """Clear dynamic hotwords from memory (Data hygiene)."""
+        self.instant_hotwords.clear()
+
     def generate_hotwords_file(self, output_path: Path, score: float = 1.5) -> Path:
         """
         Generate sherpa-onnx compatible hotwords file.
-        Format: word / score
+        Format: word :score (colon must be attached directly before the score number)
         """
         all_words: Set[str] = set(self.instant_hotwords)
         # Add top static terms
@@ -115,7 +120,26 @@ class BusinessDictionary:
                 # Clean word
                 w = word.strip()
                 if w and len(w) >= 2:
-                    f.write(f"{w} : {score}\n")
+                    # sherpa-onnx requires "word :score" (space before colon, NO space between colon and number)
+                    f.write(f"{w} :{score}\n")
 
         return output_path
+
+    def apply_replacements(self, text: str) -> str:
+        """
+        Apply dictionary and hotwords based post-processing replacements.
+        Replaces common misrecognitions or lowercase English acronyms.
+        """
+        if not text:
+            return ""
+
+        res = text
+        # 1. Exact match / Acronym case normalization for ASCII hotwords (e.g. kpi -> KPI, aws -> AWS)
+        for hw in self.instant_hotwords:
+            if re.match(r"^[A-Za-z0-9_\-\.]+$", hw) and hw.isupper():
+                # Case-insensitive boundary replace for uppercase acronyms
+                pattern = re.compile(rf"\b{re.escape(hw)}\b", re.IGNORECASE)
+                res = pattern.sub(hw, res)
+
+        return res
 

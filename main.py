@@ -15,9 +15,11 @@ from __future__ import annotations
 import collections
 import os
 import platform
+import queue
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -43,18 +45,22 @@ from ui.web_server import BusinessWebServer, broadcast_event
 class SessionWorker(QtCore.QObject):
     """Bridge between audio threads and Qt UI thread via Qt Signals."""
 
-    subtitle_ready = QtCore.Signal(str, str, dict)  # (track, text, translations_dict)
-    translations_ready = QtCore.Signal(dict)        # (translations_dict)
+    subtitle_ready = QtCore.Signal(str, str, dict, str)  # (track, text, translations_dict, utterance_id)
+    translations_ready = QtCore.Signal(str, dict)        # (utterance_id, translations_dict)
 
     def __init__(
         self,
         asr_engine: BusinessASREngine,
         vad: SileroVAD,
         translator: LocalTranslator,
+        vad_remote: Optional[SileroVAD] = None,
     ):
         super().__init__()
         self.asr_engine = asr_engine
-        self.vad = vad
+        self.vads: Dict[str, SileroVAD] = {
+            "self": vad,
+            "remote": vad_remote if vad_remote is not None else vad,
+        }
         self.translator = translator
 
         self.selected_languages: List[str] = ["ja", "en"]
@@ -68,6 +74,43 @@ class SessionWorker(QtCore.QObject):
         self._silence_frames: Dict[str, int] = {"self": 0, "remote": 0}
         self._is_speaking: Dict[str, bool] = {"self": False, "remote": False}
         self._lock = threading.Lock()
+
+        # Dedicated worker queue per track (P1: Prevents unbounded thread spawning and out-of-order subtitles)
+        self._queues: Dict[str, queue.Queue] = {
+            "self": queue.Queue(),
+            "remote": queue.Queue(),
+        }
+        self._worker_threads = [
+            threading.Thread(target=self._worker_loop, args=("self",), daemon=True, name="Worker-Self"),
+            threading.Thread(target=self._worker_loop, args=("remote",), daemon=True, name="Worker-Remote"),
+        ]
+        for w in self._worker_threads:
+            w.start()
+
+    def _worker_loop(self, track: str):
+        """Worker thread processing speech segments in strict chronological order."""
+        while True:
+            item = self._queues[track].get()
+            if item is None:
+                break
+            utterance_id, segment = item
+            try:
+                self._process_segment(track, segment, utterance_id)
+            except Exception as e:
+                print(f"[Worker:{track}] Segment processing error: {e}")
+            finally:
+                self._queues[track].task_done()
+
+    def reset_state(self):
+        """Reset internal buffers and VAD states on meeting end or pause."""
+        with self._lock:
+            self._buffers = {"self": [], "remote": []}
+            self._silence_frames = {"self": 0, "remote": 0}
+            self._is_speaking = {"self": False, "remote": False}
+            for q in self._preroll.values():
+                q.clear()
+            for v in self.vads.values():
+                v.reset()
 
     def set_selected_languages(self, langs: List[str]):
         self.selected_languages = langs[:5]
@@ -99,11 +142,8 @@ class SessionWorker(QtCore.QObject):
         hanzi_chars = len(re.findall(r"[\u4E00-\u9FFF]", text))
         total_alpha = latin_chars + hanzi_chars
 
-        # 3. Latin alphabet dominant (English, French, German, Spanish, Vietnamese, etc.)
+        # 3. Latin alphabet dominant (English, French, German, Spanish, etc.)
         if latin_chars > 0 and (total_alpha == 0 or (latin_chars / max(1, total_alpha)) >= 0.5):
-            # Vietnamese tone/vowel marks
-            if re.search(r"[đĐưƯơƠảẢãÃạẠấẤầẦẩẨẫẪậẬắẮằẰẳẲẵẴặẶ]", text):
-                return "vi"
             # German unique letters
             if re.search(r"[äöüÄÖÜß]", text):
                 return "de"
@@ -115,11 +155,11 @@ class SessionWorker(QtCore.QObject):
                 return "es"
 
             # If English is selected or no specific Latin language markers found
-            if "en" in self.selected_languages or not any(l in ("fr", "de", "es", "vi") for l in self.selected_languages):
+            if "en" in self.selected_languages or not any(l in ("fr", "de", "es") for l in self.selected_languages):
                 return "en"
             # Fallback to the first latin language in selected_languages
             for l in self.selected_languages:
-                if l in ("en", "fr", "de", "es", "vi"):
+                if l in ("en", "fr", "de", "es"):
                     return l
             return "en"
 
@@ -139,7 +179,8 @@ class SessionWorker(QtCore.QObject):
 
     def on_audio_chunk(self, track: str, pcm_512: np.ndarray):
         """Called by DualTrackCapture for every 512-sample (32ms) audio block."""
-        is_speech = self.vad.is_speech(pcm_512)
+        vad = self.vads.get(track, self.vads["self"])
+        is_speech = vad.is_speech(pcm_512)
 
         with self._lock:
             preroll = self._preroll.setdefault(track, collections.deque(maxlen=8))
@@ -165,11 +206,8 @@ class SessionWorker(QtCore.QObject):
             if self._is_speaking[track] and self._silence_frames[track] >= 12:
                 if len(buf) >= 12:  # At least ~0.38s of audio
                     segment = np.concatenate(buf).astype(np.float32)
-                    threading.Thread(
-                        target=self._process_segment,
-                        args=(track, segment),
-                        daemon=True,
-                    ).start()
+                    utterance_id = uuid.uuid4().hex[:8]
+                    self._queues[track].put((utterance_id, segment))
 
                 # Reset track state
                 self._buffers[track] = []
@@ -180,17 +218,15 @@ class SessionWorker(QtCore.QObject):
             # Guard against infinite monologue buffer without pause (split at ~12s)
             elif len(buf) > 375:
                 segment = np.concatenate(buf).astype(np.float32)
-                threading.Thread(
-                    target=self._process_segment,
-                    args=(track, segment),
-                    daemon=True,
-                ).start()
-                self._buffers[track] = []
+                utterance_id = uuid.uuid4().hex[:8]
+                self._queues[track].put((utterance_id, segment))
+                # Keep small overlap (~8 frames / 256ms) to avoid cutting words
+                self._buffers[track] = list(buf[-8:])
+                self._silence_frames[track] = 0
 
-    def _process_segment(self, track: str, segment: np.ndarray):
+    def _process_segment(self, track: str, segment: np.ndarray, utterance_id: str):
         """Transcribe and multicast translate to all other selected languages."""
         dur = len(segment) / 16000.0
-        print(f"[ASR:{track}] Decoding segment ({dur:.2f}s)...")
 
         # Smart hint: If remote track and only one non-Japanese target language is active
         hint_lang = None
@@ -201,25 +237,22 @@ class SessionWorker(QtCore.QObject):
 
         text = self.asr_engine.transcribe_pcm(segment, hint_lang=hint_lang)
         if not text or not text.strip():
-            print(f"[ASR:{track}] (No speech recognized or noise)")
             return
 
-        print(f"[ASR:{track}] Recognized: {text}")
-
-        # Emit raw subtitle immediately
-        self.subtitle_ready.emit(track, text, {})
-        broadcast_event("subtitle", {"track": track, "text": text, "translations": {}})
-
         src_lang = self._detect_src_lang(track, text)
-        target_langs = [l for l in self.selected_languages if l != src_lang]
-        print(f"[Polyglot:{track}] Detected src_lang: '{src_lang}' -> Target langs: {target_langs}")
+        print(f"[ASR:{track}] Speech recognized ({dur:.2f}s, {len(text)} chars, src_lang='{src_lang}')")
 
+        # Emit raw subtitle immediately with unique utterance_id
+        self.subtitle_ready.emit(track, text, {}, utterance_id)
+        broadcast_event("subtitle", {"id": utterance_id, "track": track, "text": text, "translations": {}})
+
+        target_langs = [l for l in self.selected_languages if l != src_lang]
         if target_langs:
             def on_translated(orig: str, trans_dict: Dict[str, str]):
                 if trans_dict:
-                    print(f"[Translate:{track}] {trans_dict}")
-                    self.translations_ready.emit(trans_dict)
-                    broadcast_event("subtitle", {"track": track, "text": orig, "translations": trans_dict})
+                    print(f"[Translate:{track}] Translated to {list(trans_dict.keys())}")
+                    self.translations_ready.emit(utterance_id, trans_dict)
+                    broadcast_event("translation", {"id": utterance_id, "translations": trans_dict})
 
             self.translator.translate_multicast_async(text, src_lang, target_langs, on_translated)
 
@@ -228,8 +261,6 @@ def find_models_dir() -> Path:
     candidates = [
         _HERE / "models",
         Path("models"),
-        Path("D:/hayamimi4b/models"),
-        Path.home() / "hayamimi4b/models",
         _HERE.parent / "models",
     ]
     for c in candidates:
@@ -260,8 +291,9 @@ def main():
     models_dir = find_models_dir()
     print(f"[Init] Using Models Directory: {models_dir}")
 
-    print("[Init] Loading VAD engine...")
-    vad = SileroVAD(models_dir=models_dir)
+    print("[Init] Loading VAD engines (isolated instances for self & remote tracks)...")
+    vad_self = SileroVAD(models_dir=models_dir)
+    vad_remote = SileroVAD(models_dir=models_dir)
 
     print("[Init] Loading ReazonSpeech ASR engine...")
     asr_engine = BusinessASREngine(models_dir=models_dir)
@@ -282,7 +314,12 @@ def main():
     panel = ControlPanel(overlay=overlay)
     tray = SystemTrayApp(panel=panel)
 
-    worker = SessionWorker(asr_engine=asr_engine, vad=vad, translator=translator)
+    worker = SessionWorker(
+        asr_engine=asr_engine,
+        vad_self=vad_self,
+        vad_remote=vad_remote,
+        translator=translator,
+    )
     capture: Optional[DualTrackCapture] = None
 
     # Sync initial languages and listen for changes
@@ -294,13 +331,14 @@ def main():
             worker.set_selected_languages(cfg["languages"])
     panel.config_changed.connect(on_config_changed)
 
-    # Connect Signals
-    def on_subtitle_ready(track: str, text: str, translations: dict):
-        overlay.add_subtitle(track, text, translations)
-        panel.append_transcript_line(track, text, translations)
+    # Connect Signals with Utterance ID matching (B6, B8, B9)
+    def on_subtitle_ready(track: str, text: str, translations: dict, utterance_id: str):
+        overlay.add_subtitle(track, text, translations, item_id=utterance_id)
+        panel.append_transcript_line(track, text, translations, item_id=utterance_id)
 
-    def on_translations_ready(translations: dict):
-        overlay.update_last_translations(translations)
+    def on_translations_ready(utterance_id: str, translations: dict):
+        overlay.update_last_translations(translations, item_id=utterance_id)
+        panel.update_transcript_translation(utterance_id, translations)
 
     worker.subtitle_ready.connect(on_subtitle_ready)
     worker.translations_ready.connect(on_translations_ready)
@@ -333,10 +371,29 @@ def main():
 
     def on_stop_meeting():
         nonlocal capture
-        print("[Meeting] Stopping...")
+        print("[Meeting] Stopping and sanitizing session data...")
         if capture:
             capture.stop()
             capture = None
+
+        # Data Hygiene & Zero Telemetry (S8, S9, M4):
+        # 1. Clean temporary agenda hotwords file from disk and memory
+        hw_file = Path(__file__).resolve().parent / "dicts" / "session_hotwords.txt"
+        if hw_file.exists():
+            try:
+                hw_file.unlink()
+                print("[Meeting] Temporary hotwords file deleted.")
+            except Exception:
+                pass
+        dictionary.clear_instant_hotwords()
+        asr_engine.update_hotwords(None)
+
+        # 2. Clear in-memory transcript from web server and overlay
+        web_server.clear_history()
+        overlay.history.clear()
+        overlay.refresh_display()
+        worker.reset_state()
+        print("[Meeting] In-memory transcript buffers completely cleared.")
 
     def on_hotwords_submitted(agenda_text: str):
         keywords = dictionary.extract_keywords_from_text(agenda_text)
@@ -356,9 +413,8 @@ def main():
     # Run Qt Event Loop
     exit_code = app.exec()
 
-    # Cleanup
-    if capture:
-        capture.stop()
+    # Final Application Cleanup (M4)
+    on_stop_meeting()
     web_server.stop()
     sys.exit(exit_code)
 

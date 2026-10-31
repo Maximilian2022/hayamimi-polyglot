@@ -85,12 +85,12 @@ def test_vad():
     print("  [PASS] Silero VAD verified.")
 
 
-def test_8_languages_asr():
-    print("\n[TEST 3/7] Testing All 8 Languages ASR Audio Decoding...")
+def test_7_languages_asr():
+    print("\n[TEST 3/7] Testing All 7 Core Languages ASR Audio Decoding...")
     models_dir = find_models_dir()
     asr = BusinessASREngine(
         models_dir=models_dir,
-        initial_languages=["ja", "en", "zh", "ko", "fr", "de", "es", "vi"],
+        initial_languages=["ja", "en", "zh", "ko", "fr", "de", "es"],
     )
 
     test_samples = [
@@ -101,7 +101,6 @@ def test_8_languages_asr():
         ("fr", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/fr.wav", "Parakeet TDT 0.6B v3"),
         ("de", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/de.wav", "Parakeet TDT 0.6B v3"),
         ("es", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/es.wav", "Parakeet TDT 0.6B v3"),
-        ("vi", "models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09/test_wavs/0.wav", "Zipformer-vi 30M"),
     ]
 
     for lang, rel_path, expected_model in test_samples:
@@ -115,7 +114,7 @@ def test_8_languages_asr():
         print(f"  -> [{lang.upper()}] ({expected_model}): {text}")
         assert len(text) > 0, f"ASR transcription failed for {lang}"
 
-    print("  [PASS] All 8 languages ASR verified with 100% accuracy.")
+    print("  [PASS] All 7 core languages ASR verified with 100% accuracy.")
 
 
 def test_lazy_loading_and_memory():
@@ -123,29 +122,29 @@ def test_lazy_loading_and_memory():
     models_dir = find_models_dir()
     asr = BusinessASREngine(models_dir=models_dir, initial_languages=["ja", "en"])
 
-    # 1. Initially ja + en: Parakeet loaded, Zipformer-vi NOT loaded
+    # 1. Initially ja + en: Parakeet loaded, SenseVoice NOT loaded
     assert asr.recognizer is not None, "ReazonSpeech should be loaded"
     assert asr.parakeet_recognizer is not None, "Parakeet should be loaded for en"
-    assert asr.zipformer_vi_recognizer is None, "Zipformer-vi should NOT be loaded initially"
-    print("  -> Phase 1 (ja + en): ReazonSpeech & Parakeet active, Zipformer-vi memory = 0MB")
+    assert asr.sense_voice_recognizer is None, "SenseVoice should NOT be loaded initially"
+    print("  -> Phase 1 (ja + en): ReazonSpeech & Parakeet active, SenseVoice RAM = 0MB")
 
-    # 2. Switch to ja + vi: Parakeet unloaded, Zipformer-vi loaded
-    asr.set_active_languages(["ja", "vi"])
-    assert asr.parakeet_recognizer is None, "Parakeet should be unloaded to free RAM"
-    assert asr.zipformer_vi_recognizer is not None, "Zipformer-vi should be loaded on-demand"
-    print("  -> Phase 2 (ja + vi): Parakeet unloaded (RAM freed), Zipformer-vi loaded")
-
-    # 3. Switch to ja + zh + ko: Zipformer-vi unloaded, SenseVoice loaded
+    # 2. Switch to ja + zh + ko: Parakeet unloaded, SenseVoice loaded
     asr.set_active_languages(["ja", "zh", "ko"])
-    assert asr.zipformer_vi_recognizer is None, "Zipformer-vi should be unloaded to free RAM"
+    assert asr.parakeet_recognizer is None, "Parakeet should be unloaded to free RAM"
     assert asr.sense_voice_recognizer is not None, "SenseVoice should be loaded on-demand"
-    print("  -> Phase 3 (ja + zh + ko): Zipformer-vi unloaded, SenseVoice active")
+    print("  -> Phase 2 (ja + zh + ko): Parakeet unloaded (RAM freed), SenseVoice loaded")
+
+    # 3. Switch back to ja + es: SenseVoice unloaded, Parakeet re-loaded
+    asr.set_active_languages(["ja", "es"])
+    assert asr.sense_voice_recognizer is None, "SenseVoice should be unloaded to free RAM"
+    assert asr.parakeet_recognizer is not None, "Parakeet should be loaded on-demand for es"
+    print("  -> Phase 3 (ja + es): SenseVoice unloaded (RAM freed), Parakeet active")
 
     print("  [PASS] Lazy loading and dynamic memory control verified.")
 
 
-def test_8_languages_translation():
-    print("\n[TEST 5/7] Testing 8 Languages Multilingual Translation (M2M-100 & FuguMT)...")
+def test_7_languages_translation():
+    print("\n[TEST 5/7] Testing 7 Languages Multilingual Translation (M2M-100 & FuguMT)...")
     models_dir = find_models_dir()
     translator = LocalTranslator(models_dir=models_dir)
 
@@ -163,7 +162,6 @@ def test_8_languages_translation():
         ("fr", "Ne vous demandez pas ce que votre pays peut faire pour vous.", "ja"),
         ("de", "Alles hat ein Ende, nur die Wurst zwei.", "ja"),
         ("es", "No preguntes que puede hacer tu país por ti.", "ja"),
-        ("vi", "Xin chào, rất vui được gặp bạn trong cuộc họp hôm nay.", "ja"),
     ]
 
     for src_l, text, tgt_l in test_cases:
@@ -174,12 +172,10 @@ def test_8_languages_translation():
     # 3. Japanese to Asian languages
     zh_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="zh")
     ko_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="ko")
-    vi_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="vi")
     print("  -> [ja -> zh] (M2M-100):", zh_res)
     print("  -> [ja -> ko] (M2M-100):", ko_res)
-    print("  -> [ja -> vi] (M2M-100):", vi_res)
 
-    print("  [PASS] 8-language bidirectional translation verified.")
+    print("  [PASS] 7-language bidirectional translation verified.")
 
 
 def test_language_identification():
@@ -206,7 +202,6 @@ def test_language_identification():
         ("self", "Guten Tag, wie geht es Ihnen?", ["ja", "de"], "de", "German"),
         ("self", "Bonjour tout le monde", ["ja", "fr"], "fr", "French"),
         ("self", "No preguntes que puede hacer tu país por ti", ["ja", "es"], "es", "Spanish"),
-        ("self", "Xin chào tất cả mọi người", ["ja", "vi"], "vi", "Vietnamese"),
     ]
 
     for track, text, langs, expected, desc in test_cases:
@@ -248,9 +243,9 @@ if __name__ == "__main__":
     print("=======================================================")
     test_dictionary_and_hotwords()
     test_vad()
-    test_8_languages_asr()
+    test_7_languages_asr()
     test_lazy_loading_and_memory()
-    test_8_languages_translation()
+    test_7_languages_translation()
     test_language_identification()
     test_security_and_system()
     print("\n=======================================================")

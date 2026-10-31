@@ -130,13 +130,13 @@ DEFAULT_COLORS = {
     "fr": "#60A5FA",             # 仏語
     "de": "#F87171",             # 独語
     "es": "#FB923C",             # 西語
-    "vi": "#2DD4BF",             # 越語
     "trans_default": "#FBBF24",  # その他言語
 }
 
 
 class SubtitleItem:
-    def __init__(self, track: str, text: str, translations: Optional[Dict[str, str]] = None):
+    def __init__(self, track: str, text: str, translations: Optional[Dict[str, str]] = None, item_id: str = ""):
+        self.item_id = item_id
         self.track = track  # "self" or "remote"
         self.text = text
         self.translations: Dict[str, str] = translations or {}
@@ -262,11 +262,11 @@ class OverlayWindow(QtWidgets.QWidget):
         self.header.setVisible(not enabled)
         self.size_grip.setVisible(not enabled)
 
-    def add_subtitle(self, track: str, text: str, translations: Optional[Dict[str, str]] = None):
+    def add_subtitle(self, track: str, text: str, translations: Optional[Dict[str, str]] = None, item_id: str = ""):
         """Add new finalized subtitle item and refresh view."""
         if not text.strip():
             return
-        item = SubtitleItem(track=track, text=text, translations=translations)
+        item = SubtitleItem(track=track, text=text, translations=translations, item_id=item_id)
         self.history.append(item)
         self.refresh_display()
 
@@ -276,10 +276,19 @@ class OverlayWindow(QtWidgets.QWidget):
             self.history[-1].translations["trans"] = translation
             self.refresh_display()
 
-    def update_last_translations(self, translations: Dict[str, str]):
-        """Update multicast translations for the most recent subtitle item."""
-        if self.history:
-            self.history[-1].translations.update(translations)
+    def update_last_translations(self, translations: Dict[str, str], item_id: str = ""):
+        """Update multicast translations for the matching item by item_id, fallback to last item."""
+        target_item = None
+        if item_id:
+            for item in reversed(self.history):
+                if item.item_id == item_id:
+                    target_item = item
+                    break
+        if target_item is None and self.history:
+            target_item = self.history[-1]
+
+        if target_item is not None:
+            target_item.translations.update(translations)
             self.refresh_display()
 
     def refresh_display(self):

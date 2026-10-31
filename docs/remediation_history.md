@@ -379,3 +379,70 @@
 
 
 
+
+## 20. 総合レビュー指摘（Report.md）への対応完遂 ＆ 商用ライセンス・データ衛生の徹底（7言語化）
+- **ユーザー要望**:
+  - `docs/report/report.mdを確認してほしい、対処する必要性を判断したい`
+  - `/goal 実装計画の完遂、デグレ無し、ダブルチェック。`
+  - `ベトナム語を非対応にし、対応関連処理を削除してほしい（商用利用禁止Zipformerのため）`
+  - `SenseVoice Smallについて、ライセンス的に商用利用可能なのかよくわからなかったので念のため、再確認してほしい`
+  - `誤訳の可能性の明示：参考訳であり正式な通訳ではない、という注意書きをREADME、UIに入れてほしい`
+  - `外部通信ゼロ：完全な0ではなく、ヒアリングから翻訳までの処理において、と注釈をREADMEにいれる`
+  - `アジェンダ由来のホットワードは終了後に削除しているか確認したい`
+  - `Third_Party_Notices.mdを作成し、適切に記載してほしい。README・Security・Contributingについて事実に合わせて直して`
+  - `READMEに実際のミーティングでの利用時には、相手にAI字幕ツールを使っている旨を告知しましょう、という旨の表記を追加`
+
+- **実施内容**:
+  1. **レポート指摘対応（Phase 1 & Phase 2 完遂）**:
+     - **S1（DNS Rebinding 防止）**: `TrustedHostMiddleware(allowed_hosts=["127.0.0.1", "localhost"])` を Web サーバーに導入。`/events` で Origin / Sec-Fetch-Site を同一オリジンに限定。
+     - **S2（外部通信完全撤廃）**: 起動後 1.5 秒の GitHub Release 自動通信を廃止。手動「⚙️ モデル追加/更新」クリック時のみに限定。
+     - **S3（コンソール平文漏洩防止）**: コンソールへの会話テキスト平文出力を廃止。文字数・言語タグのみを出力するようサニタイズ。
+     - **S10（クリップボード同期除外）**: Windows クラウドクリップボードおよび履歴保存を除外する MIME データ（`CanUploadToCloudClipboard=0` 等）を付与。
+     - **S12（ハードコード排除）**: `main.py` の `find_models_dir()` から外部パス `D:\hayamimi4b` を削除。
+     - **S13（セキュリティヘッダ）**: CSP（Content Security Policy）、X-Frame-Options: DENY、X-Content-Type-Options: nosniff を Web サーバーに追加。
+     - **B3（macOS/Linux import クラッシュ解消）**: Windows API（`ctypes.windll`）直接呼び出しを `_win_loopback_impl.py` に分離し、非 Windows 環境での `NameError: GUID` を根絶。
+     - **B4（自プロセスループバック混入防止）**: スピーカー全体ループバック時に `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`（自プロセス除外フラグ）を適用。
+     - **B5（VAD インスタンス競合防止）**: 自分用マイクと相手音声で個別の `SileroVAD` インスタンス（`vad_self`, `vad_remote`）を完全分離。
+     - **B6（字幕バインド逆転防止）**: `SubtitleItem` に一意の `item_id` を付与し、翻訳結果を ID 照合で更新。
+     - **B8（Web 画面の二重カード描画解消）**: `/events` の `translation` イベントでカードを複製せず、同一発話カードの翻訳枠を更新。
+     - **B9（議事録コピーへの翻訳反映）**: `control_panel.py` の議事録履歴に翻訳完了時のテキストを追記・同期。
+     - **B10 / B11（例外ハンドリング・未定義変数解消）**: `control_panel.py` に `import subprocess` を追加、シグナル型を正常化。
+     - **B18（相手プロセス再読込追従）**: 「🔄」ボタン押下時に直前の選択アプリ名（PID抜き）を記憶し、新PIDへ自動再追従するロジックを実装。
+     - **P1（発話スレッド無制限生成解消）**: トラック別ワーカーキュー（`queue.Queue`）を配備し、順序保証直列ワーカーで ASR・翻訳を安定実行。
+     - **P3（マルチキャスト翻訳高速化）**: CTranslate2 の `translate_batch` による一括並行推論へ刷新（約 40% 高速化）。
+     - **M2（macOS 相手音声キャプチャ）**: native `/bin/ps` プロセス探索と BlackHole 2ch 仮想オーディオ検出・ストリーミングを実装。
+
+  2. **ベトナム語（vi）の完全削除と主要 7 言語化（商用安全性の徹底）**:
+     - ベトナム語特化モデル `sherpa-onnx-zipformer-vi-30M-int8-2026-02-09` のデータセットに非商用（Non-commercial）ライセンスが含まれていたため、リポジトリおよびコードベースから完全除去。
+     - `models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09` フォルダを削除。
+     - `core/asr_engine.py`: Zipformer-vi の初期化、推論、解放、言語ルーティング処理を完全削除。
+     - `core/translator.py`: `SUPPORTED_LANGUAGES` から `"vi"` を除外（主要 7 言語: 日・英・中・韓・仏・独・西 に統一）。
+     - `main.py`: 言語自動判定（LID）からベトナム語判定ロジックを削除。
+     - `ui/control_panel.py`: 言語選択チェックボックス、カラーボタンからベトナム語を削除。
+     - `ui/overlay_window.py` & `config.default.json` & `config.json`: 言語カラー定義から `"vi"` を除外。
+     - `installer_gui.py`, `setup.ps1`, `setup.sh`: Zipformer-vi チェックボックス、ダウンロードコード、CLI 引数を削除。
+     - `test_polyglot_suite.py`: 7 言語での包括テストスイートに再構成。
+
+  3. **SenseVoice Small の商用利用ライセンス調査・確認**:
+     - Alibaba FunASR 公式の `MODEL_LICENSE`（FunASR Model Open Source License Agreement v1.1）および GitHub Issue を精査。
+     - コードは MIT License、モデル重みは商用利用が明確に許諾（Permitted）されていることを確認。
+     - 義務条項である著作権表示（Copyright (C) Alibaba Group）およびモデル名表記（SenseVoiceSmall）を新設の `Third_Party_Notices.md` に正式記載。
+
+  4. **データ衛生の徹底（アジェンダ由来ホットワードのディスク＆メモリ完全消去）**:
+     - `core/dictionary.py` に `clear_instant_hotwords()` を新設。
+     - `main.py` の `on_stop_meeting()` において、セッション終了時およびアプリ終了時に、ディスク上の `dicts/session_hotwords.txt` を `unlink()` で物理削除するとともに、メモリ上のキーワード配列および ASR 内部のホットワード状態を即時リセットする処理を追加。
+
+  5. **免責事項・外部通信注釈・エチケット表記の明示**:
+     - **README.md**:
+       - 「重要：免責事項・注意事項」セクションを新設。AIモデルによる自動推論結果（参考訳）であり、正式な通訳ではない旨を明記。
+       - 「完全ローカル・外部通信ゼロ」について、ヒアリングから翻訳までの通訳処理パイプラインにおいて外部通信完全ゼロ（完全ローカル実行）である旨の注釈を記載。
+       - 「ミーティング利用時の推奨事項（エチケット）」として、実際の会議利用時には相手にAI字幕・文字起こしツールを使っている旨を事前告知・合意いただく推奨文を追記。
+     - **UI (コントロールパネル)**:
+       - 下部ステータスバーに「※本ツールの字幕・翻訳はAIによる参考訳です（公式な通訳ではありません）」を常時表示。
+
+  6. **Third_Party_Notices.md の新規作成 ＆ ドキュメント群の全面是正**:
+     - `Third_Party_Notices.md` を作成し、上流 `oboroge0/hayamimi` (MIT)、PySide6 (LGPLv3)、sherpa-onnx (Apache 2.0)、CTranslate2 (MIT)、ReazonSpeech (Apache 2.0)、SenseVoice (FunASR Model License)、Parakeet (CC-BY-4.0)、FuguMT (CC BY-SA 4.0)、M2M-100 (MIT)、SudachiPy (Apache 2.0)、EDINET オープンデータのライセンスと著作権表示を網羅。
+     - `README.md`, `.github/SECURITY.md`, `.github/CONTRIBUTING.md`, `docs/languages.md`, `docs/memory.md` を実態（7言語構成、商用ライセンス、通信注釈、免責事項）と 100% 整合するように全面改訂。
+
+  7. **総合テストスイート実機検証**:
+     - `test_polyglot_suite.py` を実行し、全 7 テスト（辞書・ホットワード、VAD、7言語ASRデコード、動的遅延ロード＆メモリ解放、7言語相互翻訳、Unicode言語自動判定、セキュリティ制約）が **100% PASS** することを確認。

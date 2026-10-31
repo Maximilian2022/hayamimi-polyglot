@@ -13,43 +13,65 @@ import asyncio
 import html
 import json
 import threading
-from typing import AsyncGenerator, Dict, List, Set
+from typing import AsyncGenerator, Dict, List, Optional, Set
 
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 import uvicorn
 
 
 app = FastAPI(title="Hayamimi Polyglot View", docs_url=None, redoc_url=None, openapi_url=None)
 
-# Restrict CORS to self-origin only
+@app.on_event("startup")
+async def on_startup():
+    """Register running event loop for thread-safe event queuing."""
+    set_server_loop(asyncio.get_running_loop())
+
+# 1. DNS Rebinding Protection: Strict Host whitelist
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:8844", "http://localhost:8844"],
-    allow_credentials=True,
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    TrustedHostMiddleware,
+    allowed_hosts=["127.0.0.1", "localhost", "127.0.0.1:8844", "localhost:8844"],
 )
 
-# Active SSE listener queues
+# Active SSE listener queues & server event loop
+_loop: Optional[asyncio.AbstractEventLoop] = None
 _subscribers: Set[asyncio.Queue] = set()
 _transcript_history: List[Dict[str, str]] = []  # In-memory only (max 100 items)
 _lock = threading.Lock()
+
+
+def set_server_loop(loop: asyncio.AbstractEventLoop):
+    """Register server event loop for thread-safe cross-thread event delivery."""
+    global _loop
+    _loop = loop
 
 
 def broadcast_event(event_type: str, data: dict):
     """Thread-safe broadcast to all active SSE browser connections."""
     with _lock:
         if event_type == "subtitle":
-            _transcript_history.append(data)
+            _transcript_history.append(dict(data))
             if len(_transcript_history) > 100:
                 _transcript_history.pop(0)
+        elif event_type == "translation":
+            # Update matching item in history so reconnecting clients get finalized translations
+            target_id = data.get("id")
+            if target_id:
+                for item in reversed(_transcript_history):
+                    if item.get("id") == target_id:
+                        item.setdefault("translations", {}).update(data.get("translations", {}))
+                        break
+            elif _transcript_history:
+                _transcript_history[-1].setdefault("translations", {}).update(data.get("translations", {}))
 
         message = json.dumps({"event": event_type, "data": data}, ensure_ascii=False)
         for q in list(_subscribers):
             try:
-                q.put_nowait(message)
+                if _loop and _loop.is_running():
+                    _loop.call_soon_threadsafe(q.put_nowait, message)
+                else:
+                    q.put_nowait(message)
             except Exception:
                 pass
 
@@ -61,9 +83,41 @@ def clear_history():
 
 
 def _is_local_request(request: Request) -> bool:
-    """Verify request originates from local loopback."""
+    """
+    Verify request originates from local loopback with strict Host and Origin validation.
+    Prevents cross-site attacks, external access, and DNS rebinding.
+    """
     client_host = request.client.host if request.client else ""
-    return client_host in ("127.0.0.1", "localhost", "::1")
+    if client_host not in ("127.0.0.1", "localhost", "::1"):
+        return False
+
+    # Check Host header
+    host_header = request.headers.get("host", "").lower()
+    if host_header not in ("127.0.0.1:8844", "localhost:8844", "127.0.0.1", "localhost"):
+        return False
+
+    # Check Origin / Sec-Fetch-Site (if present)
+    origin = request.headers.get("origin")
+    if origin and origin not in ("http://127.0.0.1:8844", "http://localhost:8844"):
+        return False
+
+    sec_fetch_site = request.headers.get("sec-fetch-site")
+    if sec_fetch_site and sec_fetch_site not in ("same-origin", "none"):
+        return False
+
+    return True
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Inject strict security headers into all responses."""
+    response: Response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Content-Security-Policy"] = "default-src 'self' 'unsafe-inline'; frame-ancestors 'none';"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return response
 
 
 @app.get("/events")
@@ -72,22 +126,30 @@ async def sse_events(request: Request):
     if not _is_local_request(request):
         return HTMLResponse(status_code=403, content="Forbidden: Localhost only")
 
-    q: asyncio.Queue = asyncio.Queue()
+    # Queue with backpressure limit
+    q: asyncio.Queue = asyncio.Queue(maxsize=100)
     _subscribers.add(q)
+
+    # Snapshot history inside lock, then yield outside lock (thread-safe, no lock contention)
+    with _lock:
+        history_snapshot = list(_transcript_history)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:
-            # Send initial history
-            with _lock:
-                for item in _transcript_history:
-                    msg = json.dumps({"event": "subtitle", "data": item}, ensure_ascii=False)
-                    yield f"data: {msg}\n\n"
+            # Send initial history without blocking the lock
+            for item in history_snapshot:
+                msg = json.dumps({"event": "subtitle", "data": item}, ensure_ascii=False)
+                yield f"data: {msg}\n\n"
 
             while True:
                 if await request.is_disconnected():
                     break
-                message = await q.get()
-                yield f"data: {message}\n\n"
+                try:
+                    message = await asyncio.wait_for(q.get(), timeout=1.0)
+                    yield f"data: {message}\n\n"
+                except asyncio.TimeoutError:
+                    # Heartbeat keep-alive ping
+                    yield ": ping\n\n"
         finally:
             _subscribers.discard(q)
 
@@ -252,6 +314,8 @@ async def browser_view(request: Request):
         const payload = JSON.parse(e.data);
         if (payload.event === 'subtitle') {
           appendSubtitle(payload.data);
+        } else if (payload.event === 'translation') {
+          updateTranslation(payload.data);
         }
       } catch (err) {}
     };
@@ -259,8 +323,19 @@ async def browser_view(request: Request):
     function appendSubtitle(data) {
       if (emptyNotice) emptyNotice.style.display = 'none';
 
-      const card = document.createElement('div');
+      const cardId = 'card-' + (data.id || Math.random().toString(36).substring(2, 9));
+      // Avoid duplicate cards
+      let card = document.getElementById(cardId);
+      if (card) {
+        if (data.translations) {
+          updateTranslation(data);
+        }
+        return;
+      }
+
+      card = document.createElement('div');
       card.className = 'card';
+      card.id = cardId;
 
       const isSelf = data.track === 'self';
       const tagClass = isSelf ? 'self' : 'remote';
@@ -268,33 +343,42 @@ async def browser_view(request: Request):
       const now = new Date().toLocaleTimeString();
 
       const safeText = escapeHtml(data.text);
-      let transHtml = '';
-      let transLines = [];
-      if (data.translations && typeof data.translations === 'object') {
-        for (const [lang, transText] of Object.entries(data.translations)) {
-          if (transText) {
-            transHtml += `<div class="translation">↳ <b style="color:#38BDF8;">[${lang.toUpperCase()}]</b> ${escapeHtml(transText)}</div>`;
-            transLines.push(`↳ [${lang.toUpperCase()}] ${transText}`);
-          }
-        }
-      } else if (data.translation) {
-        transHtml = `<div class="translation">↳ ${escapeHtml(data.translation)}</div>`;
-        transLines.push(`↳ ${data.translation}`);
-      }
-
       card.innerHTML = `
         <div class="speaker-row">
           <span class="tag ${tagClass}">[${tagText}]</span>
           <span class="time">${now}</span>
         </div>
         <div class="original">${safeText}</div>
-        ${transHtml}
+        <div class="trans-container"></div>
       `;
 
       feed.appendChild(card);
+      if (data.translations) {
+        updateTranslation(data);
+      }
       window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    }
 
-      allLines.push(`[${tagText}] ${data.text}` + (transLines.length > 0 ? `\\n` + transLines.join('\\n') : ''));
+    function updateTranslation(data) {
+      const cardId = 'card-' + data.id;
+      const card = document.getElementById(cardId) || feed.lastElementChild;
+      if (!card) return;
+
+      const container = card.querySelector('.trans-container');
+      if (!container) return;
+
+      let transHtml = '';
+      if (data.translations && typeof data.translations === 'object') {
+        for (const [lang, transText] of Object.entries(data.translations)) {
+          if (transText) {
+            transHtml += `<div class="translation">↳ <b style="color:#38BDF8;">[${lang.toUpperCase()}]</b> ${escapeHtml(transText)}</div>`;
+          }
+        }
+      } else if (data.translation) {
+        transHtml = `<div class="translation">↳ ${escapeHtml(data.translation)}</div>`;
+      }
+      container.innerHTML = transHtml;
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
     }
 
     function copyAllText() {

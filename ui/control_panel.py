@@ -18,9 +18,10 @@ from __future__ import annotations
 import json
 import os
 import platform
+import subprocess
 import webbrowser
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, QPoint, Signal
@@ -103,6 +104,7 @@ class ControlPanel(QtWidgets.QWidget):
     config_changed = Signal(dict)
     hotwords_submitted = Signal(str)
     high_accuracy_toggled = Signal(bool)
+    update_available = Signal(str)
 
     def __init__(self, overlay: OverlayWindow, parent=None):
         super().__init__(parent)
@@ -111,11 +113,12 @@ class ControlPanel(QtWidgets.QWidget):
         self.is_pinned = False
         self.is_running = False
         self.meeting_lines: List[str] = []
-
+        self._meeting_entries: Dict[str, dict] = {}
         self._drag_pos = QPoint()
 
         self.init_ui()
         self.update_app_icon(False)
+        self.update_available.connect(self._on_update_available)
 
     def init_ui(self):
         self.setWindowTitle("Hayamimi Polyglot - コントロールパネル")
@@ -330,7 +333,6 @@ class ControlPanel(QtWidgets.QWidget):
             ("fr", "仏語 🇫🇷"),
             ("de", "独語 🇩🇪"),
             ("es", "西語 🇪🇸"),
-            ("vi", "越語 🇻🇳"),
         ]
 
         for i, (code, name) in enumerate(available_langs):
@@ -476,7 +478,7 @@ class ControlPanel(QtWidgets.QWidget):
         # Translation Language colors
         row_trans_colors = QtWidgets.QHBoxLayout()
         row_trans_colors.addWidget(QtWidgets.QLabel("翻訳言語:"))
-        for lang_code, lang_label in [("ja", "日"), ("en", "米"), ("zh", "中"), ("ko", "韓"), ("fr", "仏"), ("de", "独"), ("es", "西"), ("vi", "越")]:
+        for lang_code, lang_label in [("ja", "日"), ("en", "米"), ("zh", "中"), ("ko", "韓"), ("fr", "仏"), ("de", "独"), ("es", "西")]:
             lbl = QtWidgets.QLabel(f"{lang_label}:")
             lbl.setStyleSheet("font-size: 11px; color: #94A3B8;")
             row_trans_colors.addWidget(lbl)
@@ -538,11 +540,14 @@ class ControlPanel(QtWidgets.QWidget):
 
         layout.addLayout(bottom_layout)
 
+        # Disclaimer (Reference Translation only)
+        lbl_disclaimer = QtWidgets.QLabel("※本ツールの字幕・翻訳はAIによる参考訳です（公式な通訳ではありません）")
+        lbl_disclaimer.setStyleSheet("color: #64748B; font-size: 11px; font-style: italic; margin-top: 4px;")
+        lbl_disclaimer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl_disclaimer)
+
         self.resize(480, 680)
         self.load_settings()
-
-        # Check for updates in background (non-blocking)
-        QtCore.QTimer.singleShot(1500, self.check_for_updates)
 
     def populate_fonts(self):
         """Scan local system fonts and populate dropdown."""
@@ -728,22 +733,33 @@ class ControlPanel(QtWidgets.QWidget):
         super().closeEvent(event)
 
     def populate_audio_processes(self):
-        """Scan active audio sessions."""
+        """Scan active audio sessions with intelligent auto-reselection."""
         current_text = self.combo_app.currentText()
+        selected_name = current_text.split(" (PID:")[0].strip() if " (PID:" in current_text else current_text.strip()
+
         self.combo_app.clear()
         self.combo_app.addItem("スピーカー全体 (Default Loopback)", 0)
 
         procs = list_audio_processes()
+        restored_index = -1
         for p in procs:
             label = f"{p.name} (PID: {p.pid})"
+            idx = self.combo_app.count()
             self.combo_app.addItem(label, p.pid)
+            if selected_name and p.name.lower() == selected_name.lower():
+                restored_index = idx
 
-        # Prioritize Zoom or Teams if present
-        for i in range(self.combo_app.count()):
-            text = self.combo_app.itemText(i).lower()
-            if "zoom" in text or "teams" in text or "slack" in text:
-                self.combo_app.setCurrentIndex(i)
-                break
+        if restored_index > 0:
+            self.combo_app.setCurrentIndex(restored_index)
+        elif selected_name == "スピーカー全体 (Default Loopback)":
+            self.combo_app.setCurrentIndex(0)
+        else:
+            # Fallback: Prioritize Zoom, Teams, Slack if present
+            for i in range(self.combo_app.count()):
+                text = self.combo_app.itemText(i).lower()
+                if "zoom" in text or "teams" in text or "slack" in text:
+                    self.combo_app.setCurrentIndex(i)
+                    break
 
     def populate_microphones(self):
         """Scan active input microphones without duplicates."""
@@ -844,6 +860,7 @@ class ControlPanel(QtWidgets.QWidget):
             self.lbl_status.setText("待機中 (完全オフライン)")
             self.lbl_status.setStyleSheet("color: #64748B;")
             self.update_app_icon(False)
+            self.clear_meeting_transcript()
             self.stop_requested.emit()
 
     def apply_hotwords(self):
@@ -857,8 +874,21 @@ class ControlPanel(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "議事録コピー", "コピーできる会議テキストがありません。")
             return
         clipboard = QtGui.QGuiApplication.clipboard()
-        clipboard.setText("\n\n".join(self.meeting_lines))
-        QtWidgets.QMessageBox.information(self, "議事録コピー", "クリップボードに議事録テキストをコピーしました！")
+        text_content = "\n\n".join(self.meeting_lines)
+        mime = QtCore.QMimeData()
+        mime.setText(text_content)
+        # Windows 10/11: Exclude from clipboard history (Win+V) and cloud synchronization (S10)
+        mime.setData("CanIncludeInClipboardHistory", QtCore.QByteArray(b"\x00\x00\x00\x00"))
+        mime.setData("CanUploadToCloudClipboard", QtCore.QByteArray(b"\x00\x00\x00\x00"))
+        mime.setData("ExcludeClipboardContentFromMonitorProcessing", QtCore.QByteArray(b"\x01\x00\x00\x00"))
+        clipboard.setMimeData(mime)
+        QtWidgets.QMessageBox.information(self, "議事録コピー", "クリップボードに議事録テキストをコピーしました！\n（※クラウド同期・クリップボード履歴から保護されています）")
+
+    def _on_update_available(self, remote_ver: str):
+        """Update button styling and text when a newer version is discovered."""
+        self.btn_update.setText(f"🆕 更新利用可能 (v{remote_ver})")
+        self.btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #0284C7; font-weight: bold; color: #FFFFFF;")
+        self.btn_update.setToolTip(f"最新バージョン v{remote_ver} が公開されています。クリックして更新できます。")
 
     def on_language_toggled(self):
         selected = self.get_selected_languages()
@@ -878,30 +908,39 @@ class ControlPanel(QtWidgets.QWidget):
     def get_selected_languages(self) -> List[str]:
         return [code for code, chk in self.lang_checkboxes.items() if chk.isChecked()]
 
-    def check_for_updates(self):
-        """Asynchronously check if a newer version is available on GitHub."""
+    def check_for_updates(self, manual: bool = False):
+        """
+        Manually check if a newer version is available on GitHub.
+        Strictly opt-in only. Zero network traffic unless clicked.
+        """
         import threading
         import urllib.request
+        from packaging import version
 
         def _worker():
             try:
                 root = Path(__file__).resolve().parent.parent
                 ver_file = root / "version.txt"
-                local_ver = ver_file.read_text(encoding="utf-8").strip() if ver_file.exists() else "1.0.0"
+                local_ver_str = ver_file.read_text(encoding="utf-8").strip() if ver_file.exists() else "1.0.0"
 
                 url = "https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/version.txt"
                 req = urllib.request.Request(url, headers={"User-Agent": "Hayamimi-Polyglot-Client"})
-                with urllib.request.urlopen(req, timeout=3) as resp:
-                    remote_ver = resp.read().decode("utf-8").strip()
+                with urllib.request.urlopen(req, timeout=4) as resp:
+                    remote_ver_str = resp.read().decode("utf-8").strip()
 
-                if remote_ver and remote_ver != local_ver:
-                    def _notify():
-                        self.btn_update.setText(f"🆕 更新利用可能 (v{remote_ver})")
-                        self.btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #0284C7; font-weight: bold; color: #FFFFFF;")
-                        self.btn_update.setToolTip(f"最新バージョン v{remote_ver} が公開されています。クリックして更新できます。")
-                    QtCore.QMetaObject.invokeMethod(self, _notify, QtCore.Qt.ConnectionType.QueuedConnection)
-            except Exception:
-                pass  # Offline or rate limit - fail silently
+                if remote_ver_str:
+                    try:
+                        is_newer = version.parse(remote_ver_str) > version.parse(local_ver_str)
+                    except Exception:
+                        is_newer = remote_ver_str != local_ver_str
+
+                    if is_newer:
+                        self.update_available.emit(remote_ver_str)
+                    elif manual:
+                        print(f"[Update] Already up-to-date: v{local_ver_str}")
+            except Exception as e:
+                if manual:
+                    print(f"[Update] Check failed (offline or network error): {e}")
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -936,16 +975,42 @@ class ControlPanel(QtWidgets.QWidget):
 
         QtWidgets.QApplication.quit()
 
-    def append_transcript_line(self, track: str, text: str, translations: Optional[Dict[str, str] | str] = None):
-        tag = "自分" if track == "self" else "相手"
-        line = f"[{tag}] {text}"
-        if isinstance(translations, dict):
-            for lang, trans_text in translations.items():
+    def append_transcript_line(self, track: str, text: str, translations: Optional[Dict[str, str] | str] = None, item_id: str = ""):
+        """Record transcript entry with support for utterance_id updates."""
+        trans_dict = translations if isinstance(translations, dict) else ({"trans": translations} if translations else {})
+        uid = item_id or f"entry_{len(self._meeting_entries)}"
+        self._meeting_entries[uid] = {
+            "track": track,
+            "text": text,
+            "translations": dict(trans_dict),
+        }
+        self._rebuild_meeting_lines()
+
+    def update_transcript_translation(self, item_id: str, translations: Dict[str, str]):
+        """Update translation for an existing utterance."""
+        if item_id in self._meeting_entries:
+            self._meeting_entries[item_id]["translations"].update(translations)
+        elif self._meeting_entries:
+            # Fallback to last entry
+            last_key = list(self._meeting_entries.keys())[-1]
+            self._meeting_entries[last_key]["translations"].update(translations)
+        self._rebuild_meeting_lines()
+
+    def _rebuild_meeting_lines(self):
+        lines = []
+        for entry in self._meeting_entries.values():
+            tag = "自分" if entry["track"] == "self" else "相手"
+            line = f"[{tag}] {entry['text']}"
+            for lang, trans_text in entry.get("translations", {}).items():
                 if trans_text:
                     line += f"\n↳ [{lang.upper()}] {trans_text}"
-        elif isinstance(translations, str) and translations:
-            line += f"\n↳ {translations}"
-        self.meeting_lines.append(line)
+            lines.append(line)
+        self.meeting_lines = lines
+
+    def clear_meeting_transcript(self):
+        """Clear session meeting lines on meeting end."""
+        self.meeting_lines.clear()
+        self._meeting_entries.clear()
 
 
 class SystemTrayApp:

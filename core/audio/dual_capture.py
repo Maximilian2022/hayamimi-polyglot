@@ -197,36 +197,55 @@ class DualTrackCapture:
             self._run_remote_mac()
 
     def _run_remote_windows(self) -> None:
-        """Windows Application Loopback or Speaker capture."""
-        if self.remote_pid and self.remote_pid > 0:
-            # Capture specific application (e.g. Zoom.exe)
-            try:
-                from .win_loopback import app_chunks
-                for chunk in app_chunks(
-                    self.remote_pid,
-                    output_sample_rate=self.sample_rate,
-                    chunk_size=self.chunk_size,
-                    stop_event=self._stop_event,
-                ):
-                    if not self.running or self._stop_event.is_set():
-                        break
-                    self.on_chunk("remote", chunk)
-            except Exception as exc:
-                # Fallback to speaker if PID fails
-                self._run_speaker_fallback()
-        else:
+        """Windows Application Loopback or Full Speaker capture."""
+        try:
+            from .win_loopback import (
+                app_chunks,
+                PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
+                PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE,
+            )
+
+            if self.remote_pid and self.remote_pid > 0:
+                # Capture specific application (e.g. Zoom.exe)
+                target_pid = self.remote_pid
+                mode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
+                print(f"[Audio:Remote] Capturing target application PID: {target_pid}")
+            else:
+                # Capture all speaker audio EXCEPT our own process (Default Loopback)
+                target_pid = os.getpid()
+                mode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
+                print(f"[Audio:Remote] Capturing all speaker audio (excluding self PID: {target_pid})")
+
+            for chunk in app_chunks(
+                target_pid,
+                output_sample_rate=self.sample_rate,
+                chunk_size=self.chunk_size,
+                stop_event=self._stop_event,
+                loopback_mode=mode,
+            ):
+                if not self.running or self._stop_event.is_set():
+                    break
+                self.on_chunk("remote", chunk)
+        except Exception as exc:
+            print(f"[Audio:Remote] Process Loopback error: {exc}")
             self._run_speaker_fallback()
 
     def _run_speaker_fallback(self) -> None:
-        """Fallback to standard WASAPI loopback (default output device)."""
+        """Secondary fallback using sounddevice WASAPI loopback device query."""
         try:
-            # sounddevice WASAPI loopback device
+            wasapi_hostapi = None
+            for idx, h in enumerate(sd.query_hostapis()):
+                if "wasapi" in h.get("name", "").lower():
+                    wasapi_hostapi = idx
+                    break
+
             wasapi_loopback = None
-            for idx, dev in enumerate(sd.query_devices()):
-                if dev.get("hostapi") == 1:  # WASAPI
-                    if dev.get("max_input_channels") > 0 and "loopback" in dev.get("name", "").lower():
-                        wasapi_loopback = idx
-                        break
+            if wasapi_hostapi is not None:
+                for idx, dev in enumerate(sd.query_devices()):
+                    if dev.get("hostapi") == wasapi_hostapi and dev.get("max_input_channels") > 0:
+                        if "loopback" in dev.get("name", "").lower():
+                            wasapi_loopback = idx
+                            break
 
             if wasapi_loopback is not None:
                 def loopback_cb(indata, frames, time_info, status):
@@ -245,11 +264,26 @@ class DualTrackCapture:
                 ):
                     while self.running and not self._stop_event.is_set():
                         self._stop_event.wait(0.1)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[Audio:Remote] Speaker fallback error: {exc}")
 
     def _run_remote_mac(self) -> None:
-        """macOS capture stub."""
-        while self.running and not self._stop_event.is_set():
-            self._stop_event.wait(0.1)
+        """macOS remote audio capture via ScreenCaptureKit / BlackHole."""
+        try:
+            from .mac_loopback import MacScreenCaptureKitAudio
+            capture = MacScreenCaptureKitAudio(
+                process_id=self.remote_pid or 0,
+                sample_rate=self.sample_rate,
+                chunk_size=self.chunk_size,
+                stop_event=self._stop_event,
+            )
+            capture.start()
+            for chunk in capture.chunks():
+                if not self.running or self._stop_event.is_set():
+                    break
+                self.on_chunk("remote", chunk)
+        except Exception as exc:
+            print(f"[Audio:Remote:Mac] Error: {exc}")
+            while self.running and not self._stop_event.is_set():
+                self._stop_event.wait(0.1)
 

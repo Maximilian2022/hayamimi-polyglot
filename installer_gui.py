@@ -102,13 +102,13 @@ class InstallWorker(QThread):
     progress_signal = Signal(int)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, target_dir: Path, clean_venv: bool, with_parakeet: bool, with_sense_voice: bool, with_zipformer_vi: bool, should_launch: bool):
+    def __init__(self, target_dir: Path, clean_venv: bool, with_parakeet: bool, with_sense_voice: bool, with_zipformer_vi: bool = False, should_launch: bool = True):
         super().__init__()
         self.target_dir = target_dir
         self.clean_venv = clean_venv
         self.with_parakeet = with_parakeet
         self.with_sense_voice = with_sense_voice
-        self.with_zipformer_vi = with_zipformer_vi
+        self.with_zipformer_vi = False  # Disabled for 100% commercial license compliance
         self.should_launch = should_launch
 
     def run(self):
@@ -346,22 +346,6 @@ class InstallWorker(QThread):
                     except Exception as e:
                         self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗 (スキップします): {e}")
 
-            # Zipformer-vi 30M (Vietnamese dedicated ASR)
-            if self.with_zipformer_vi:
-                vi_dir = models_dir / "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09"
-                if not vi_dir.exists():
-                    self.log_signal.emit("🇻🇳 Zipformer-vi 30M ベトナム語特化ASRモデル (約35MB) をダウンロード中...")
-                    vi_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09.tar.bz2"
-                    tar_path = models_dir / "zipformer-vi.tar.bz2"
-                    try:
-                        urllib.request.urlretrieve(vi_url, tar_path)
-                        with tarfile.open(tar_path, "r:bz2") as tar:
-                            tar.extractall(models_dir)
-                        tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ Zipformer-vi 配備完了！")
-                    except Exception as e:
-                        self.log_signal.emit(f"⚠️ Zipformer-vi ダウンロード失敗 (スキップします): {e}")
-
             self.progress_signal.emit(85)
 
             # 6. Create Desktop Launcher
@@ -497,18 +481,10 @@ class InstallerWindow(QMainWindow):
         group_models_layout.addWidget(self.chk_sensevoice)
         group_models_layout.addWidget(lbl_sv_sub)
 
-        self.chk_zipformer_vi = QCheckBox("🇻🇳 ベトナム語特化 ASR (Zipformer-vi 30M: 約 35MB)")
-        self.chk_zipformer_vi.setChecked(True)
-        self.chk_zipformer_vi.setEnabled(True)
-        lbl_vi_sub = QLabel("  • ベトナム語の6声調を完全識別する超軽量・高精度モデル")
-        lbl_vi_sub.setObjectName("lblSub")
-        group_models_layout.addWidget(self.chk_zipformer_vi)
-        group_models_layout.addWidget(lbl_vi_sub)
-
         self.chk_nllb = QCheckBox("🌐 高精度 アジア・多言語翻訳 (NLLB-200 600M: +約 600MB)")
         self.chk_nllb.setChecked(False)
         self.chk_nllb.setEnabled(False)
-        lbl_nllb_sub = QLabel("  • 中国語・韓国語・ベトナム語などの長文翻訳精度やビジネス敬語を向上 (準備中)")
+        lbl_nllb_sub = QLabel("  • 中国語・韓国語などの長文翻訳精度やビジネス敬語を向上 (準備中)")
         lbl_nllb_sub.setObjectName("lblSubDisabled")
         group_models_layout.addWidget(self.chk_nllb)
         group_models_layout.addWidget(lbl_nllb_sub)
@@ -695,14 +671,13 @@ class InstallerWindow(QMainWindow):
         self.chk_parakeet.setEnabled(False)
         self.chk_nllb.setEnabled(False)
         self.chk_sensevoice.setEnabled(False)
-        self.chk_zipformer_vi.setEnabled(False)
 
         self.worker = InstallWorker(
             target_dir=target_dir,
             clean_venv=self.chk_clean_venv.isChecked(),
             with_parakeet=self.chk_parakeet.isChecked(),
             with_sense_voice=self.chk_sensevoice.isChecked(),
-            with_zipformer_vi=self.chk_zipformer_vi.isChecked(),
+            with_zipformer_vi=False,
             should_launch=self.chk_launch.isChecked()
         )
         self.worker.log_signal.connect(self.append_log)
