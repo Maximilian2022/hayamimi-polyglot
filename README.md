@@ -6,7 +6,7 @@
 [![Zero Telemetry](https://img.shields.io/badge/Telemetry-Zero%20(100%25%20Offline)-brightgreen.svg)]()
 
 > [!NOTE]
-> **Hayamimi Polyglot** は、[oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) をベースに、主要 8 言語（日・英・中・韓・仏・独・西・越）の「直接聞き取り（ASR）」、Meta M2M-100 による「相互同時マルチキャスト翻訳（NMT）」、遅延ロード（Lazy Loading / オンデマンド起動）、およびクロスプラットフォーム統一 GUI インストーラー等を大幅に拡張・実装した派生プロジェクト（Polyglot Fork）です。
+> **Hayamimi Polyglot** は、[oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) をベースに、主要 8 言語（日・英・中・韓・仏・独・西・越）の「直接聞き取り（ASR）」、Meta M2M-100 による「相互同時マルチキャスト翻訳（NMT）」、遅延ロード（Lazy Loading / オンデマンド起動）、およびクロスプラットフォーム統一 GUI インストーラー等を大幅に拡張・実装した派生プロジェクト（Hayamimi Fork）です。
 
 **完全ローカル・低遅延・高セキュリティな多言語ビジネス会議向けリアルタイム同時並行通訳システム**
 
