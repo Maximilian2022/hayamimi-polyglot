@@ -1,0 +1,29 @@
+# Hayamimi For Business (hayamimi4b) Dependencies
+# All dependencies are commercial-safe (Apache 2.0 / MIT / BSD)
+
+# Core Audio & ASR
+numpy>=1.26.0,<2.0.0
+sounddevice>=0.4.6
+soundfile>=0.12.1
+onnxruntime>=1.17.0
+sherpa-onnx>=1.10.0
+
+# Translation (Local CPU Optimized)
+ctranslate2>=4.0.0
+sentencepiece>=0.2.0
+
+# Business Dictionary & Tokenization (Apache 2.0)
+sudachipy>=0.6.8
+sudachidict_full>=20240409
+
+# Windows Audio Capture (Non-admin Application Loopback)
+comtypes>=1.4.0
+pycaw>=20240210
+
+# Desktop UI & Overlay (LGPL / Commercial-friendly PySide6)
+PySide6>=6.6.0
+
+# Browser View for Screen Sharing (127.0.0.1 bound only)
+fastapi>=0.109.0
+uvicorn>=0.27.0
+
