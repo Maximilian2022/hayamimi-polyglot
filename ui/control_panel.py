@@ -36,6 +36,62 @@ except Exception:
     from core.audio.win_loopback import list_audio_processes, AudioProcess
 
 
+def create_hayamimi_icon(is_active: bool) -> QtGui.QIcon:
+    """
+    Generate dynamic high-DPI vector icons for taskbar and system tray.
+    - Idle / Standby: Sleek Slate & Cyan Blue (#1E293B / #38BDF8)
+    - Active Listening: Vibrant Emerald Green (#10B981) + Live Red dot badge
+    """
+    size = 64
+    pixmap = QtGui.QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+
+    # 1. Background Circle & Glow
+    if is_active:
+        bg_color = QtGui.QColor("#10B981")
+        border_color = QtGui.QColor("#34D399")
+    else:
+        bg_color = QtGui.QColor("#1E293B")
+        border_color = QtGui.QColor("#38BDF8")
+
+    painter.setPen(QtGui.QPen(border_color, 3.5))
+    painter.setBrush(QtGui.QBrush(bg_color))
+    painter.drawEllipse(4, 4, size - 8, size - 8)
+
+    # 2. Draw Microphone Silhouette
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QtGui.QBrush(QtGui.QColor("#FFFFFF")))
+
+    # Mic capsule (rounded rect)
+    mic_w = 14
+    mic_h = 22
+    mic_x = (size - mic_w) / 2
+    mic_y = 14
+    painter.drawRoundedRect(QtCore.QRectF(mic_x, mic_y, mic_w, mic_h), 7, 7)
+
+    # Mic cup / arc
+    painter.setPen(QtGui.QPen(QtGui.QColor("#FFFFFF"), 3.0, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawArc(QtCore.QRectF(mic_x - 4, mic_y + 6, mic_w + 8, mic_h - 2), 0, -180 * 16)
+
+    # Mic stem & base
+    stem_top = mic_y + mic_h + 3
+    painter.drawLine(int(size / 2), int(stem_top), int(size / 2), int(stem_top + 8))
+    painter.drawLine(int(size / 2 - 8), int(stem_top + 8), int(size / 2 + 8), int(stem_top + 8))
+
+    # 3. Live Red Dot Badge (Active Listening Indicator)
+    if is_active:
+        painter.setPen(QtGui.QPen(QtGui.QColor("#FFFFFF"), 1.8))
+        painter.setBrush(QtGui.QBrush(QtGui.QColor("#EF4444")))
+        painter.drawEllipse(QtCore.QRectF(size - 22, 6, 14, 14))
+
+    painter.end()
+    return QtGui.QIcon(pixmap)
+
+
 class ControlPanel(QtWidgets.QWidget):
     """
     Main Business Control Panel.
@@ -51,6 +107,7 @@ class ControlPanel(QtWidgets.QWidget):
     def __init__(self, overlay: OverlayWindow, parent=None):
         super().__init__(parent)
         self.overlay = overlay
+        self.tray_app = None
         self.is_pinned = False
         self.is_running = False
         self.meeting_lines: List[str] = []
@@ -58,6 +115,7 @@ class ControlPanel(QtWidgets.QWidget):
         self._drag_pos = QPoint()
 
         self.init_ui()
+        self.update_app_icon(False)
 
     def init_ui(self):
         self.setWindowTitle("Hayamimi Polyglot - コントロールパネル")
@@ -436,8 +494,9 @@ class ControlPanel(QtWidgets.QWidget):
         disp_layout.setSpacing(8)
 
         # Stealth Mode Toggle
-        self.chk_stealth = QtWidgets.QCheckBox("🛡️ 画面共有から字幕を隠す (ステルス保護)")
+        self.chk_stealth = QtWidgets.QCheckBox("🛡️ 画面共有から字幕＆設定パネルを隠す (ステルス保護)")
         self.chk_stealth.setChecked(True)  # Default: ON
+        self.chk_stealth.setToolTip("【画面共有保護】\nZoom、Teams、Google Meet の画面共有やスクリーンショットから、字幕オーバーレイと本設定パネルの両方を完全に透明除外します（自分にのみ見えます）。")
         self.chk_stealth.toggled.connect(self.on_stealth_toggled)
         disp_layout.addWidget(self.chk_stealth)
 
@@ -727,10 +786,32 @@ class ControlPanel(QtWidgets.QWidget):
             self.btn_pin.setText("📌 常に表示")
             self.btn_pin.setStyleSheet("font-size: 11px; padding: 4px 8px;")
 
+    def showEvent(self, event: QtGui.QShowEvent):
+        super().showEvent(event)
+        # Ensure stealth protection is immediately applied to the control panel window
+        if hasattr(self, "chk_stealth") and self.chk_stealth.isChecked():
+            try:
+                set_stealth_mode(int(self.winId()), True)
+            except Exception:
+                pass
+
     def on_stealth_toggled(self, checked: bool):
         self.overlay.apply_stealth(checked)
-        # Also apply stealth to control panel if on Windows
-        set_stealth_mode(int(self.winId()), checked)
+        # Apply stealth protection to control panel window
+        try:
+            set_stealth_mode(int(self.winId()), checked)
+        except Exception as e:
+            print(f"[Stealth Panel] Error: {e}")
+
+    def update_app_icon(self, is_active: bool):
+        """Update window icons across taskbar, control panel, overlay, and system tray."""
+        icon = create_hayamimi_icon(is_active)
+        self.setWindowIcon(icon)
+        QtWidgets.QApplication.setWindowIcon(icon)
+        if hasattr(self, "overlay") and self.overlay:
+            self.overlay.setWindowIcon(icon)
+        if hasattr(self, "tray_app") and self.tray_app:
+            self.tray_app.set_icon(icon, is_active)
 
     def on_clickthrough_toggled(self, checked: bool):
         self.overlay.set_click_through_mode(checked)
@@ -753,6 +834,7 @@ class ControlPanel(QtWidgets.QWidget):
             self.lbl_status.setText("● 聞き取り・翻訳中")
             self.lbl_status.setStyleSheet("color: #10B981; font-weight: bold;")
             self.overlay.show()
+            self.update_app_icon(True)
             self.start_requested.emit()
         else:
             self.is_running = False
@@ -761,6 +843,7 @@ class ControlPanel(QtWidgets.QWidget):
             self.btn_action.setStyle(self.btn_action.style())
             self.lbl_status.setText("待機中 (完全オフライン)")
             self.lbl_status.setStyleSheet("color: #64748B;")
+            self.update_app_icon(False)
             self.stop_requested.emit()
 
     def apply_hotwords(self):
@@ -870,12 +953,11 @@ class SystemTrayApp:
 
     def __init__(self, panel: ControlPanel):
         self.panel = panel
+        self.panel.tray_app = self
         self.tray = QtWidgets.QSystemTrayIcon(panel)
 
-        # Standard icon or fallback
-        icon = panel.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MediaVolume)
-        self.tray.setIcon(icon)
-        self.tray.setToolTip("Hayamimi Polyglot - リアルタイム多言語同時並行通訳")
+        # Initialize with standard idle Hayamimi icon
+        self.set_icon(create_hayamimi_icon(False), is_active=False)
 
         # Tray menu
         menu = QtWidgets.QMenu()
@@ -892,6 +974,14 @@ class SystemTrayApp:
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(self.on_tray_activated)
         self.tray.show()
+
+    def set_icon(self, icon: QtGui.QIcon, is_active: bool = False):
+        """Update system tray icon and tooltip based on active listening state."""
+        self.tray.setIcon(icon)
+        if is_active:
+            self.tray.setToolTip("Hayamimi Polyglot - ● 聞き取り・翻訳中 (Active)")
+        else:
+            self.tray.setToolTip("Hayamimi Polyglot - 待機中 (Offline Standby)")
 
     def on_tray_activated(self, reason):
         if reason in (QtWidgets.QSystemTrayIcon.ActivationReason.Trigger, QtWidgets.QSystemTrayIcon.ActivationReason.DoubleClick):

@@ -11,6 +11,7 @@ Features:
 from __future__ import annotations
 
 import ctypes
+import ctypes.util
 import os
 import platform
 import sys
@@ -46,7 +47,6 @@ def set_stealth_mode(window_id: int, stealth_on: bool) -> bool:
             return False
     elif system == "Darwin":
         try:
-            import ctypes.util
             objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
             objc_msgSend = objc.objc_msgSend
             objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
@@ -99,7 +99,6 @@ def set_click_through(window_id: int, click_through: bool) -> None:
             pass
     elif system == "Darwin":
         try:
-            import ctypes.util
             objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
             sel_registerName = objc.sel_registerName
             sel_registerName.argtypes = [ctypes.c_char_p]
