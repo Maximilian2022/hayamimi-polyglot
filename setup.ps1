@@ -263,10 +263,10 @@ if (Test-Path (Join-Path $DefaultInstallPath "main.py")) {
 
 function Append-Log([string]$msg) {
     $time = (Get-Date).ToString("HH:mm:ss")
-    $txtLog.Dispatcher.Invoke([Action]{
-        $txtLog.AppendText("[$time] $msg`r`n")
-        $txtLog.ScrollToEnd()
-    })
+    $txtLog.AppendText("[$time] $msg`r`n")
+    $txtLog.ScrollToEnd()
+    [System.Windows.Forms.Application]::DoEvents()
+    [System.Windows.Threading.Dispatcher]::CurrentDispatcher.Invoke([Action]{}, [System.Windows.Threading.DispatcherPriority]::Render)
 }
 
 # Browse Folder
@@ -329,148 +329,142 @@ $btnInstall.Add_Click({
     $withSenseVoice = $chkSenseVoice.IsChecked
     $shouldLaunch = $chkLaunch.IsChecked
 
-    # Run installation on background thread to keep UI smooth
-    [System.Threading.Tasks.Task]::Run([Action]{
-        try {
-            Append-Log "セットアップを開始します: $targetDir"
-            if (-not (Test-Path $targetDir)) {
-                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-            }
-
-            # 1. Install / Verify uv (Python environment manager)
-            Append-Log "uv (Rust製 高速Pythonパッケージマネージャー) を確認中..."
-            $uvExe = (Get-Command uv.exe -ErrorAction SilentlyContinue).Source
-            if (-not $uvExe) {
-                Append-Log "uv をダウンロード・インストールしています..."
-                irm https://astral.sh/uv/install.ps1 | iex
-                $uvExe = "$env:USERPROFILE\.local\bin\uv.exe"
-            }
-            if (-not (Test-Path $uvExe)) {
-                throw "uv のインストールに失敗しました。"
-            }
-            Append-Log "uv 検出完了: $uvExe"
-
-            # 2. Setup / Rebuild Python 3.14 Virtual Environment
-            $venvDir = Join-Path $targetDir ".venv"
-            $pyExe = Join-Path $venvDir "Scripts\python.exe"
-
-            if ($cleanVenv -or (-not (Test-Path $pyExe))) {
-                Append-Log "Python 3.14 仮想環境をクリーン再構築中 (--clear)..."
-                Append-Log "※ uv のローカルキャッシュから即時展開されるため再DLなしで1〜2秒で完了します"
-                & $uvExe venv --clear $venvDir --python 3.14 | Out-Null
-            } else {
-                Append-Log "既存の Python 3.14 仮想環境を再利用します"
-            }
-
-            if (-not (Test-Path $pyExe)) {
-                throw "Python 仮想環境の構築に失敗しました: $pyExe"
-            }
-            Append-Log "Python 3.14 環境準備完了: $pyExe"
-
-            # 3. Copy project files if installing to a new directory
-            $sourceDir = $ScriptDirectory
-            if ($sourceDir -and (Test-Path (Join-Path $sourceDir "core\asr_engine.py")) -and ($sourceDir -ne $targetDir)) {
-                Append-Log "プログラムファイルを配置中..."
-                Copy-Item -Path (Join-Path $sourceDir "core") -Destination (Join-Path $targetDir "core") -Recurse -Force
-                Copy-Item -Path (Join-Path $sourceDir "ui") -Destination (Join-Path $targetDir "ui") -Recurse -Force
-                Copy-Item -Path (Join-Path $sourceDir "dicts") -Destination (Join-Path $targetDir "dicts") -Recurse -Force
-                Copy-Item -Path (Join-Path $sourceDir "main.py") -Destination (Join-Path $targetDir "main.py") -Force
-                Copy-Item -Path (Join-Path $sourceDir "config.json") -Destination (Join-Path $targetDir "config.json") -Force
-                Copy-Item -Path (Join-Path $sourceDir "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
-                Copy-Item -Path (Join-Path $sourceDir ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
-                Copy-Item -Path (Join-Path $sourceDir "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
-                Copy-Item -Path (Join-Path $sourceDir "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
-                Copy-Item -Path (Join-Path $sourceDir "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
-            }
-
-            # 4. Install / Update Dependencies
-            Append-Log "依存パッケージを同期中 (PySide6, sherpa-onnx, ctranslate2)..."
-            $reqFile = Join-Path $targetDir "requirements.txt"
-            & $uvExe pip install -r $reqFile --python $pyExe --upgrade | Out-Null
-            Append-Log "依存パッケージの同期完了！"
-
-            # 5. Download Models
-            $modelsDir = Join-Path $targetDir "models"
-            if (-not (Test-Path $modelsDir)) { New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null }
-
-            # Base models: copy if existing locally in hayamimi/models
-            $existingModels = "E:\hayamimi\models"
-            if (Test-Path $existingModels) {
-                Append-Log "ローカルキャッシュから基本モデルを配備中..."
-                $baseModels = @(
-                    "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
-                    "silero_vad.onnx",
-                    "mojicast-m2m100-ct2",
-                    "mojicast-fugumt-ja-en-ct2"
-                )
-                foreach ($m in $baseModels) {
-                    $src = Join-Path $existingModels $m
-                    $dst = Join-Path $modelsDir $m
-                    if ((Test-Path $src) -and (-not (Test-Path $dst))) {
-                        Append-Log "  -> 配置: $m"
-                        Copy-Item -Path $src -Destination $dst -Recurse -Force
-                    }
-                }
-            }
-
-            # Optional Models
-            if ($withSenseVoice) {
-                $svDir = Join-Path $modelsDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-                if (-not (Test-Path $svDir)) {
-                    Append-Log "SenseVoice Small 多言語ASRモデルをダウンロード中..."
-                    $svUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
-                    $tarFile = Join-Path $modelsDir "sense-voice.tar.bz2"
-                    try {
-                        Invoke-WebRequest -Uri $svUrl -OutFile $tarFile -UseBasicParsing
-                        tar -xjf $tarFile -C $modelsDir
-                        Remove-Item $tarFile -Force -ErrorAction SilentlyContinue
-                        Append-Log "SenseVoice Small 配備完了！"
-                    } catch {
-                        Append-Log "⚠️ SenseVoice ダウンロード失敗 (スキップします): $_"
-                    }
-                }
-            }
-
-            # 6. Create Desktop Shortcut
-            Append-Log "デスクトップショートカットを作成中..."
-            $desktop = [Environment]::GetFolderPath("Desktop")
-            $shortcutPath = Join-Path $desktop "Hayamimi Polyglot.lnk"
-            $wshShell = New-Object -ComObject WScript.Shell
-            $shortcut = $wshShell.CreateShortcut($shortcutPath)
-            $shortcut.TargetPath = Join-Path $targetDir "start.bat"
-            $shortcut.WorkingDirectory = $targetDir
-            $shortcut.Description = "Hayamimi Polyglot - リアルタイム多言語同時並行通訳"
-            $shortcut.Save()
-            Append-Log "ショートカット作成完了: $shortcutPath"
-
-            # 7. Complete
-            Append-Log "========================================="
-            Append-Log "🎉 セットアップがすべて正常に完了しました！"
-            Append-Log "========================================="
-
-            $window.Dispatcher.Invoke([Action]{
-                $prgBar.IsIndeterminate = $false
-                $prgBar.Value = 100
-                $btnInstall.Content = "✅ 完了"
-                $btnInstall.Background = [System.Windows.Media.Brushes]::DodgerBlue
-                $btnInstall.IsEnabled = $true
-                $btnInstall.Add_Click({
-                    if ($shouldLaunch) {
-                        Start-Process (Join-Path $targetDir "start.bat")
-                    }
-                    $window.Close()
-                })
-            })
-
-        } catch {
-            Append-Log "❌ エラーが発生しました: $_"
-            $window.Dispatcher.Invoke([Action]{
-                $prgBar.IsIndeterminate = $false
-                $btnInstall.Content = "再試行"
-                $btnInstall.IsEnabled = $true
-            })
+    # Run installation with UI updates via DoEvents
+    try {
+        Append-Log "セットアップを開始します: $targetDir"
+        if (-not (Test-Path $targetDir)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
         }
-    })
+
+        # 1. Install / Verify uv (Python environment manager)
+        Append-Log "uv (Rust製 高速Pythonパッケージマネージャー) を確認中..."
+        $uvExe = (Get-Command uv.exe -ErrorAction SilentlyContinue).Source
+        if (-not $uvExe) {
+            Append-Log "uv をダウンロード・インストールしています..."
+            irm https://astral.sh/uv/install.ps1 | iex
+            $uvExe = "$env:USERPROFILE\.local\bin\uv.exe"
+        }
+        if (-not (Test-Path $uvExe)) {
+            throw "uv のインストールに失敗しました。"
+        }
+        Append-Log "uv 検出完了: $uvExe"
+
+        # 2. Setup / Rebuild Python 3.14 Virtual Environment
+        $venvDir = Join-Path $targetDir ".venv"
+        $pyExe = Join-Path $venvDir "Scripts\python.exe"
+
+        if ($cleanVenv -or (-not (Test-Path $pyExe))) {
+            Append-Log "Python 3.14 仮想環境をクリーン再構築中 (--clear)..."
+            Append-Log "※ uv のローカルキャッシュから即時展開されるため再DLなしで1〜2秒で完了します"
+            & $uvExe venv --clear $venvDir --python 3.14 | Out-Null
+        } else {
+            Append-Log "既存の Python 3.14 仮想環境を再利用します"
+        }
+
+        if (-not (Test-Path $pyExe)) {
+            throw "Python 仮想環境の構築に失敗しました: $pyExe"
+        }
+        Append-Log "Python 3.14 環境準備完了: $pyExe"
+
+        # 3. Copy project files if installing to a new directory
+        $sourceDir = $ScriptDirectory
+        if ($sourceDir -and (Test-Path (Join-Path $sourceDir "core\asr_engine.py")) -and ($sourceDir -ne $targetDir)) {
+            Append-Log "プログラムファイルを配置中..."
+            Copy-Item -Path (Join-Path $sourceDir "core") -Destination (Join-Path $targetDir "core") -Recurse -Force
+            Copy-Item -Path (Join-Path $sourceDir "ui") -Destination (Join-Path $targetDir "ui") -Recurse -Force
+            Copy-Item -Path (Join-Path $sourceDir "dicts") -Destination (Join-Path $targetDir "dicts") -Recurse -Force
+            Copy-Item -Path (Join-Path $sourceDir "main.py") -Destination (Join-Path $targetDir "main.py") -Force
+            Copy-Item -Path (Join-Path $sourceDir "config.json") -Destination (Join-Path $targetDir "config.json") -Force
+            Copy-Item -Path (Join-Path $sourceDir "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
+            Copy-Item -Path (Join-Path $sourceDir ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path (Join-Path $sourceDir "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
+            Copy-Item -Path (Join-Path $sourceDir "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
+            Copy-Item -Path (Join-Path $sourceDir "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
+        }
+
+        # 4. Install / Update Dependencies
+        Append-Log "依存パッケージを同期中 (PySide6, sherpa-onnx, ctranslate2)..."
+        $reqFile = Join-Path $targetDir "requirements.txt"
+        & $uvExe pip install -r $reqFile --python $pyExe --upgrade | Out-Null
+        Append-Log "依存パッケージの同期完了！"
+
+        # 5. Download Models
+        $modelsDir = Join-Path $targetDir "models"
+        if (-not (Test-Path $modelsDir)) { New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null }
+
+        # Base models: copy if existing locally in hayamimi/models
+        $existingModels = "E:\hayamimi\models"
+        if (Test-Path $existingModels) {
+            Append-Log "ローカルキャッシュから基本モデルを配備中..."
+            $baseModels = @(
+                "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
+                "silero_vad.onnx",
+                "mojicast-m2m100-ct2",
+                "mojicast-fugumt-ja-en-ct2"
+            )
+            foreach ($m in $baseModels) {
+                $src = Join-Path $existingModels $m
+                $dst = Join-Path $modelsDir $m
+                if ((Test-Path $src) -and (-not (Test-Path $dst))) {
+                    Append-Log "  -> 配置: $m"
+                    Copy-Item -Path $src -Destination $dst -Recurse -Force
+                }
+            }
+        }
+
+        # Optional Models
+        if ($withSenseVoice) {
+            $svDir = Join-Path $modelsDir "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
+            if (-not (Test-Path $svDir)) {
+                Append-Log "SenseVoice Small 多言語ASRモデルをダウンロード中..."
+                $svUrl = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
+                $tarFile = Join-Path $modelsDir "sense-voice.tar.bz2"
+                try {
+                    Invoke-WebRequest -Uri $svUrl -OutFile $tarFile -UseBasicParsing
+                    tar -xjf $tarFile -C $modelsDir
+                    Remove-Item $tarFile -Force -ErrorAction SilentlyContinue
+                    Append-Log "SenseVoice Small 配備完了！"
+                } catch {
+                    Append-Log "⚠️ SenseVoice ダウンロード失敗 (スキップします): $_"
+                }
+            }
+        }
+
+        # 6. Create Desktop Shortcut
+        Append-Log "デスクトップショートカットを作成中..."
+        $desktop = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktop "Hayamimi Polyglot.lnk"
+        $wshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $wshShell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = Join-Path $targetDir "start.bat"
+        $shortcut.WorkingDirectory = $targetDir
+        $shortcut.Description = "Hayamimi Polyglot - リアルタイム多言語同時並行通訳"
+        $shortcut.Save()
+        Append-Log "ショートカット作成完了: $shortcutPath"
+
+        # 7. Complete
+        Append-Log "========================================="
+        Append-Log "🎉 セットアップがすべて正常に完了しました！"
+        Append-Log "========================================="
+
+        $prgBar.IsIndeterminate = $false
+        $prgBar.Value = 100
+        $btnInstall.Content = "✅ 完了"
+        $btnInstall.Background = [System.Windows.Media.Brushes]::DodgerBlue
+        $btnInstall.IsEnabled = $true
+        $btnInstall.Add_Click({
+            if ($shouldLaunch) {
+                Start-Process (Join-Path $targetDir "start.bat")
+            }
+            $window.Close()
+        })
+
+    } catch {
+        Append-Log "❌ エラーが発生しました: $_"
+        $prgBar.IsIndeterminate = $false
+        $btnInstall.Content = "再試行"
+        $btnInstall.IsEnabled = $true
+    }
 })
 
 # Show GUI

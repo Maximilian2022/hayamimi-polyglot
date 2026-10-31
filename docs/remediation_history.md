@@ -74,3 +74,11 @@
   - `setup.ps1`:
     - 配備対象ファイルリストに `installer_gui.py` を追加。
 
+## 10. setup.ps1 インストール実行時の PowerShell Runspace 不在フリーズ解消
+- **内容**:
+  - `setup.ps1`:
+    - 「セットアップを開始する」ボタン押下時に `.NET` の `Task.Run([Action]{...})` を使っていたため、PowerShell の実行空間（Runspace）がスレッドプール上に存在せず `PSInvalidOperationException` で 1 行目から即座にクラッシュし、ログが 1 文字も表示されずに画面が固まっていた問題を特定。
+    - `Task.Run` を排除し、UI イベントハンドラ内で直接処理を実行。
+    - `Append-Log` 内で `[System.Windows.Forms.Application]::DoEvents()` および `DispatcherPriority.Render` による即時描画キューフラッシュを実装。
+    - これにより、Runspace 例外が 100% 解消され、プログレスバーがアニメーションしながら各処理工程（uv確認、venv構築、依存ライブラリ同期、モデル配備）のログがリアルタイムに 1 行ずつ描画・スクロールされるように改修。
+
