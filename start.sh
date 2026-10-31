@@ -19,3 +19,4 @@ else
 fi
 
 exec "$PYTHON_EXE" main.py "$@"
+

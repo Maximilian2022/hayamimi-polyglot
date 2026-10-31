@@ -84,3 +84,4 @@ chmod +x start.sh
 ## 📄 ライセンス
 
 本プロジェクトは [Apache License 2.0](LICENSE) の下で公開されています。商用利用・企業内利用が完全に許諾されています。
+

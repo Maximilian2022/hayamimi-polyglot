@@ -19,3 +19,4 @@ if exist ".venv\Scripts\python.exe" (
 
 start "" "%PYTHON_EXE%" main.py %*
 exit /b 0
+

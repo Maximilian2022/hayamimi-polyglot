@@ -268,20 +268,26 @@ class ControlPanel(QtWidgets.QWidget):
 
         layout.addWidget(grp_display)
 
-        # 6. Bottom Actions (Copy Transcript)
+        # 6. Bottom Actions (Copy Transcript & Updater)
         bottom_layout = QtWidgets.QHBoxLayout()
         self.lbl_status = QtWidgets.QLabel("待機中 (完全オフライン)")
         self.lbl_status.setStyleSheet("color: #64748B; font-size: 12px;")
         bottom_layout.addWidget(self.lbl_status)
         bottom_layout.addStretch()
 
-        btn_copy = QtWidgets.QPushButton("📋 議事録テキストをコピー")
+        btn_update = QtWidgets.QPushButton("⚙️ モデル追加/更新")
+        btn_update.setStyleSheet("font-size: 11px; padding: 4px 8px; background-color: #334155;")
+        btn_update.setToolTip("追加AIモデルのダウンロードやアップデートを実行します")
+        btn_update.clicked.connect(self.open_updater)
+        bottom_layout.addWidget(btn_update)
+
+        btn_copy = QtWidgets.QPushButton("📋 議事録コピー")
         btn_copy.clicked.connect(self.copy_transcript)
         bottom_layout.addWidget(btn_copy)
 
         layout.addLayout(bottom_layout)
 
-        self.resize(440, 520)
+        self.resize(460, 540)
 
     def populate_audio_processes(self):
         """Scan active audio sessions."""
@@ -374,6 +380,19 @@ class ControlPanel(QtWidgets.QWidget):
 
     def get_selected_languages(self) -> List[str]:
         return [code for code, chk in self.lang_checkboxes.items() if chk.isChecked()]
+
+    def open_updater(self):
+        """Launch the setup/updater GUI to download extra models or update version."""
+        import subprocess
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if platform.system() == "Windows":
+            setup_script = os.path.join(root, "setup.ps1")
+            if os.path.isfile(setup_script):
+                subprocess.Popen(["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", setup_script], cwd=root)
+        else:
+            setup_script = os.path.join(root, "setup.sh")
+            if os.path.isfile(setup_script):
+                subprocess.Popen(["bash", setup_script], cwd=root)
 
     def append_transcript_line(self, track: str, text: str, translations: Optional[Dict[str, str] | str] = None):
         tag = "自分" if track == "self" else "相手"
