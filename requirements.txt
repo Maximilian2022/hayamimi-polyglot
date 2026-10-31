@@ -2,7 +2,7 @@
 # All dependencies are commercial-safe (Apache 2.0 / MIT / BSD)
 
 # Core Audio & ASR
-numpy>=1.26.0,<2.0.0
+numpy>=1.26.0
 sounddevice>=0.4.6
 soundfile>=0.12.1
 onnxruntime>=1.17.0

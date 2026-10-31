@@ -5,7 +5,8 @@
 - **リモート接続**: `https://github.com/Maximilian2022/hayamimi-polyglot.git` (Private)
 - **現在のブランチ**: `main`
 - **現在のバージョン**: `1.0.0`
-- **総合検証**: `test_polyglot_suite.py` による全5テスト（Hotwords、VAD/ASR、CTranslate2多言語翻訳、Windows音声セッション列挙、セキュリティ制約）が **100% PASS** を確認済み。
+- **Python環境**: **Python 3.14**（CPython 3.14.10）に統一完了（`.python-version`, `setup.ps1`, `setup.sh` 連携）。
+- **総合検証**: `test_polyglot_suite.py` による全5テスト（Hotwords、VAD/ASR、CTranslate2多言語翻訳、Windows音声セッション列挙、セキュリティ制約）が Python 3.14 上で **100% PASS** を確認済み。
 
 ---
 
@@ -38,3 +39,4 @@
    - 初回ユーザーが完全新規マシンで実行した際の自動ダウンロードURL（HuggingFace / sherpa-onnx リリース）のフォールバック動作の検証。
 3. **macOS 実機での ScreenCaptureKit Audio 動作検証**:
    - Windows (WASAPI Loopback) は動作検証完了。macOS 実機でのマイク＋相手音声の結合テスト。
+

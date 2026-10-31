@@ -31,15 +31,15 @@ if ! command -v uv >/dev/null 2>&1; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# 3. Create or Clean-Rebuild Python 3.12 Virtual Environment
+# 3. Create or Clean-Rebuild Python 3.14 Virtual Environment
 if [ -d "$INSTALL_PATH/.venv" ]; then
     echo "🔄 Existing Python environment detected."
     echo "⚡ Clean-rebuilding virtual environment (--clear)..."
     echo "   (uv caches wheels locally, so rebuild takes only 1-2 seconds with 0 re-downloads)"
-    uv venv --clear "$INSTALL_PATH/.venv" --python 3.12
+    uv venv --clear "$INSTALL_PATH/.venv" --python 3.14
 else
-    echo "🐍 Creating Python 3.12 virtual environment (.venv)..."
-    uv venv "$INSTALL_PATH/.venv" --python 3.12
+    echo "🐍 Creating Python 3.14 virtual environment (.venv)..."
+    uv venv "$INSTALL_PATH/.venv" --python 3.14
 fi
 
 # 4. Copy project files if installing to different directory

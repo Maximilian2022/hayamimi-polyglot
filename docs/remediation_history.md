@@ -24,3 +24,11 @@
   - `test_polyglot_suite.py`:
     - `find_models_dir()` を追加し、カレントディレクトリ配下の `models`、親ディレクトリの `models`、`E:\hayamimi\models` などを優先順に自動探索するように改善。
     - 独立実行時にも確実にモデルを発見できるように修正。
+
+## 4. プロジェクト全体の Python 3.14 への統一と uv 隔離環境の検証
+- **内容**:
+  - `.python-version` をプロジェクトルートに新設し `3.14` を固定。
+  - `requirements.txt`: NumPy 1.x が Python 3.14 向け pre-built wheel を持たず C コンパイラビルドエラーとなるのを防ぐため、`numpy>=1.26.0,<2.0.0` から `numpy>=1.26.0` に緩和。NumPy 2.x（`2.5.4`）が正常導入され全ライブラリと互換性を維持。
+  - `setup.ps1` / `setup.sh`: 仮想環境構築時のターゲット Python バージョンを `3.12` から `3.14` に更新。
+  - Python 3.14 環境（CPython 3.14.10）で `.venv` をクリーン再構築し、`test_polyglot_suite.py` の全5テスト（Hotwords, VAD/ASR, CTranslate2多言語翻訳, Windows Loopback, セキュリティ制約）が **100% PASS** することを確認。ホストOSの既存Python環境に干渉されない完全な隔離動作を実証。
+

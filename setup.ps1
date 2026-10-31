@@ -287,22 +287,22 @@ $btnInstall.Add_Click({
             }
             Append-Log "uv 検出完了: $uvExe"
 
-            # 2. Setup / Rebuild Python 3.12 Virtual Environment
+            # 2. Setup / Rebuild Python 3.14 Virtual Environment
             $venvDir = Join-Path $targetDir ".venv"
             $pyExe = Join-Path $venvDir "Scripts\python.exe"
 
             if ($cleanVenv -or (-not (Test-Path $pyExe))) {
-                Append-Log "Python 3.12 仮想環境をクリーン再構築中 (--clear)..."
+                Append-Log "Python 3.14 仮想環境をクリーン再構築中 (--clear)..."
                 Append-Log "※ uv のローカルキャッシュから即時展開されるため再DLなしで1〜2秒で完了します"
-                & $uvExe venv --clear $venvDir --python 3.12 | Out-Null
+                & $uvExe venv --clear $venvDir --python 3.14 | Out-Null
             } else {
-                Append-Log "既存の Python 3.12 仮想環境を再利用します"
+                Append-Log "既存の Python 3.14 仮想環境を再利用します"
             }
 
             if (-not (Test-Path $pyExe)) {
                 throw "Python 仮想環境の構築に失敗しました: $pyExe"
             }
-            Append-Log "Python 3.12 環境準備完了: $pyExe"
+            Append-Log "Python 3.14 環境準備完了: $pyExe"
 
             # 3. Copy project files if installing to a new directory
             $sourceDir = Split-Path -Parent $MyInvocation.MyCommand.Path
