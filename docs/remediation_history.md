@@ -676,3 +676,12 @@
      - 新規リリース作成時に `gh release create "$TAG" --generate-notes` を実行。
      - 既存リリースの更新時にも `gh release edit "$TAG" --generate-notes` を実行し、直前バージョンからの全コミット差分が記載されたリリースノートが常に新しく自動再生成・更新されるパイプラインを確立。
      - 並行ジョブ競合防止フォールバック（`create || edit`）を導入。
+
+## 33. CI Release ワークフローにおける gh release edit 引数エラーの修正
+- **背景・原因**:
+  - `v1.0.1` の CI/CD 実行時、macOS ジョブが先に `v1.0.1` Release を作成した後、Windows ジョブ側が `gh release edit "$TAG" --generate-notes` を実行した。
+  - しかし `gh release edit` コマンドには `--generate-notes` フラグが存在せず（`gh release create` のみ対応）、`unknown flag: --generate-notes` エラーで Windows ビルド後のアップロード処理が失敗していた。
+- **実施内容**:
+  - `.github/workflows/ci-release-portable.yml`:
+    - 既存リリースが存在する場合のリリースノート更新処理を、GitHub REST API（`repos/{owner}/{repo}/releases/generate-notes`）経由で最新ノート本文を取得して `gh release edit "$TAG" --notes "$NOTES"` に安全に渡す実装へと改修。
+    - 並行ジョブ競合防止のため `|| true` によるフォールバックガードを追加。

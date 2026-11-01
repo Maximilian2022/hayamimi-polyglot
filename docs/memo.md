@@ -18,3 +18,4 @@
 - [x] **改修履歴 (docs/remediation_history.md) の更新**
 - [x] **設計決定事項 (docs/memory.md) の長期記憶更新**
 - [x] **version.txt 連動の GitHub Release 自動作成 & 動的 Portable パッケージ CI/CD 構築**
+- [x] **CI Release ワークフローの gh release edit API 連携修正 (Windows アップロード失敗解消)**
