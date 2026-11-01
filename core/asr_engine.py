@@ -1,26 +1,23 @@
 """
 Hayamimi Polyglot - Core ASR Engine.
 Multi-model offline speech recognition engine optimized for standard CPU execution.
-Zero recording to disk. Pure in-memory streaming.
+In-memory streaming with zero disk recording.
 
 Architecture:
-  - Japanese (ja): ReazonSpeech INT8 Zipformer (Fixed for instant hotwords bias & business dictionary)
-  - English & European (en, fr, de, es): NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (European 25-lang SOTA)
-  - Asian languages (zh, ko): SenseVoice Small (Native Chinese/Korean, fast script probe)
-  - Vietnamese (vi): Zipformer-vi 30M INT8 (Dedicated 6-tone acoustics)
+  - Japanese (ja): ReazonSpeech INT8 Zipformer (with SudachiPy business dictionary post-processing)
+  - English & European (en, fr, de, es): NVIDIA NeMo Parakeet TDT 0.6B v3 INT8
+  - Asian languages (zh, ko): SenseVoice Small (Chinese/Korean & script probe)
 
 Lazy Loading / On-demand Activation:
-  - Models for non-selected languages are never loaded into RAM.
+  - Models for non-selected languages are not loaded into RAM.
 """
 
 from __future__ import annotations
 
 import gc
-import glob
-import os
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set
 
 import numpy as np
 import sherpa_onnx
@@ -39,8 +36,7 @@ def _find_file(directory: Path, pattern: str) -> Optional[Path]:
 class BusinessASREngine:
     """
     Offline Multi-model ASR Engine for Hayamimi Polyglot.
-    Strictly runs on CPU only (Intel Core i5 / AMD Ryzen, no GPU required).
-    Supports lazy loading based on active meeting languages.
+    Runs on CPU and supports lazy loading based on active meeting languages.
     """
 
     def __init__(
@@ -50,6 +46,7 @@ class BusinessASREngine:
         threads: int = 2,
         initial_languages: Optional[List[str]] = None,
         high_accuracy_mode: bool = True,
+        dictionary: Optional[BusinessDictionary] = None,
     ):
         if models_dir is None:
             candidates = [
@@ -68,18 +65,19 @@ class BusinessASREngine:
         self._high_accuracy_mode: bool = high_accuracy_mode
 
         # Recognizer slots (loaded lazily on demand)
-        self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & fallback)
+        self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & ja/en probe)
         self.sense_voice_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # Chinese, Korean, LID probe
         self.parakeet_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # English, French, German, Spanish
 
-        # Business post-decoding dictionary
-        self.dictionary: BusinessDictionary = BusinessDictionary()
+        # Shared Business post-decoding dictionary
+        self.dictionary: BusinessDictionary = dictionary if dictionary is not None else BusinessDictionary()
         self.replacement_rules: Dict[str, str] = {}
+        self.last_detected_lang: Optional[str] = None
 
         # Active meeting languages
         self.active_languages: Set[str] = set(initial_languages) if initial_languages else {"ja", "en"}
 
-        # Always initialize Japanese ASR (ReazonSpeech) as the baseline
+        # Initialize baseline Japanese ASR
         self._init_reazon()
 
         # Synchronize model loading with active languages
@@ -100,7 +98,7 @@ class BusinessASREngine:
         Update active meeting languages and trigger lazy-load / unload of models.
         Keeps RAM usage minimal by releasing models not in use.
         """
-        new_langs = set(langs)
+        new_langs = set(langs) if langs else {"ja"}
         if new_langs != self.active_languages:
             print(f"[ASR] Updating active languages: {sorted(list(new_langs))}")
             self.active_languages = new_langs
@@ -109,7 +107,6 @@ class BusinessASREngine:
     def sync_active_models(self) -> None:
         """Load required recognizers and unload unused ones according to active_languages."""
         if not self.high_accuracy_mode:
-            # High-accuracy mode OFF: keep only ReazonSpeech, release others
             self._unload_parakeet()
             self._unload_sense_voice()
             return
@@ -121,7 +118,7 @@ class BusinessASREngine:
         elif not needs_parakeet and self.parakeet_recognizer is not None:
             self._unload_parakeet()
 
-        # 2. SenseVoice Small (Chinese, Korean, and fast LID probe)
+        # 2. SenseVoice Small (Chinese, Korean)
         needs_sense_voice = bool(self.active_languages.intersection({"zh", "ko"}))
         if needs_sense_voice and self.sense_voice_recognizer is None:
             self._init_sense_voice()
@@ -147,13 +144,7 @@ class BusinessASREngine:
             print("[ASR] Incomplete ReazonSpeech model files in", rz_dir)
             return None
 
-        hw_file_str = str(self.hotwords_file) if (self.hotwords_file and self.hotwords_file.is_file()) else ""
-
         try:
-            # Note: ReazonSpeech uses Byte-level BPE where FST hotwords are incompatible.
-            # Real-world benchmark (2026-11) proved greedy_search is 60% faster (174ms vs 277ms)
-            # and avoids beam-pruning text drops (CER 16.3% vs 59.2%).
-            # Hotword & domain correction is handled with zero-overhead by SudachiPy post-processing.
             return sherpa_onnx.OfflineRecognizer.from_transducer(
                 encoder=str(encoder),
                 decoder=str(decoder),
@@ -174,10 +165,10 @@ class BusinessASREngine:
         rec = self._create_reazon_recognizer()
         if rec is not None:
             self.recognizer = rec
-            print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese & Hotwords)")
+            print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese)")
 
     def _init_parakeet(self) -> None:
-        """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European 25 langs)."""
+        """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European languages)."""
         if self.parakeet_recognizer is not None:
             return
 
@@ -227,7 +218,7 @@ class BusinessASREngine:
             print("[ASR] [Unloaded] Parakeet TDT (freed RAM)")
 
     def _init_sense_voice(self) -> None:
-        """Initialize SenseVoice Small for Asian languages (Chinese, Korean) and fast LID."""
+        """Initialize SenseVoice Small for Asian languages (Chinese, Korean)."""
         if self.sense_voice_recognizer is not None:
             return
 
@@ -261,17 +252,23 @@ class BusinessASREngine:
             print("[ASR] [Unloaded] SenseVoice Small (freed RAM)")
 
     def update_hotwords(self, hotwords_file: Optional[Path | str] = None) -> None:
-        """Update hotwords and reload ReazonSpeech recognizer atomically without dropping audio."""
+        """
+        Update hotword state in-memory without reloading ONNX weights.
+        Hotword corrections are applied instantaneously via BusinessDictionary.
+        """
         self.hotwords_file = Path(hotwords_file) if hotwords_file else None
-        new_rec = self._create_reazon_recognizer()
-        if new_rec is not None:
-            self.recognizer = new_rec
-            name = self.hotwords_file.name if self.hotwords_file else "cleared"
-            print(f"[ASR] [Updated] Hotwords applied successfully: {name}")
+        print("[ASR] [Updated] Instant Hotwords active in post-processing dictionary.")
 
     def set_replacements(self, rules: Dict[str, str]) -> None:
         """Set post-decoding word replacement rules."""
         self.replacement_rules = {k.strip(): v.strip() for k, v in rules.items() if k.strip()}
+
+    def has_any_model(self) -> bool:
+        """Return True if at least one recognizer is loaded and ready."""
+        return any(
+            r is not None
+            for r in (self.recognizer, self.parakeet_recognizer, self.sense_voice_recognizer)
+        )
 
     # --------------------------------------------------------------------------
     # Audio Transcription Pipeline
@@ -280,7 +277,7 @@ class BusinessASREngine:
         """
         Transcribe a 16kHz float32 mono audio segment.
         Routing Architecture:
-          - Japanese (ja): ReazonSpeech INT8 Zipformer (Hotwords & Dictionary enabled)
+          - Japanese (ja): ReazonSpeech INT8 Zipformer (Dictionary enabled)
           - European languages (en, fr, de, es): Parakeet TDT 0.6B v3 INT8
           - Asian languages (zh, ko): SenseVoice Small
         """
@@ -288,48 +285,61 @@ class BusinessASREngine:
             return ""
 
         raw_text = ""
+        self.last_detected_lang = None
 
         # Ensure mono 1D float32
         if pcm_16k_mono.ndim > 1:
             pcm_16k_mono = pcm_16k_mono[:, 0]
         pcm_16k_mono = np.ascontiguousarray(pcm_16k_mono, dtype=np.float32)
 
+        # If only a single language is active in the meeting and no explicit hint is given,
+        # route directly to that single language model without multi-model probing.
+        effective_hint = hint_lang
+        if not effective_hint and len(self.active_languages) == 1:
+            effective_hint = next(iter(self.active_languages))
+
         # ----------------------------------------------------------------------
-        # Strategy A: Direct Hint-based Routing
+        # Strategy A: Direct Hint-based / Single-language Routing
         # ----------------------------------------------------------------------
-        if hint_lang:
-            if hint_lang in ("en", "fr", "de", "es") and self.parakeet_recognizer:
+        if effective_hint:
+            if effective_hint in ("en", "fr", "de", "es") and self.parakeet_recognizer:
                 try:
                     stream = self.parakeet_recognizer.create_stream()
                     stream.accept_waveform(16000, pcm_16k_mono)
                     self.parakeet_recognizer.decode_stream(stream)
                     raw_text = stream.result.text.strip()
+                    if raw_text:
+                        self.last_detected_lang = effective_hint
                 except Exception as ex:
-                    print(f"[ASR:Hint:{hint_lang}] Decode error: {ex}")
+                    print(f"[ASR:Hint:{effective_hint}] Decode error: {ex}")
 
-            elif hint_lang in ("zh", "ko") and self.sense_voice_recognizer:
+            elif effective_hint in ("zh", "ko") and self.sense_voice_recognizer:
                 try:
                     stream = self.sense_voice_recognizer.create_stream()
                     stream.accept_waveform(16000, pcm_16k_mono)
                     self.sense_voice_recognizer.decode_stream(stream)
                     raw_text = stream.result.text.strip()
+                    if raw_text:
+                        self.last_detected_lang = effective_hint
                 except Exception as ex:
-                    print(f"[ASR:Hint:{hint_lang}] Decode error: {ex}")
+                    print(f"[ASR:Hint:{effective_hint}] Decode error: {ex}")
 
-            elif hint_lang == "ja" and self.recognizer:
+            elif effective_hint == "ja" and self.recognizer:
                 try:
                     stream = self.recognizer.create_stream()
                     stream.accept_waveform(16000, pcm_16k_mono)
                     self.recognizer.decode_stream(stream)
                     raw_text = stream.result.text.strip()
+                    if raw_text:
+                        self.last_detected_lang = "ja"
                 except Exception as ex:
                     print(f"[ASR:Hint:ja] Decode error: {ex}")
 
         # ----------------------------------------------------------------------
-        # Strategy B: Automatic Multi-model Routing
+        # Strategy B: Automatic Multi-model Routing (Bilingual / Multilingual)
         # ----------------------------------------------------------------------
         if not raw_text and self.high_accuracy_mode:
-            # 1. Asian Languages (Korean / Chinese) via SenseVoice
+            # 1. Asian Languages (Korean / Chinese) via SenseVoice when active
             if ("ko" in self.active_languages or "zh" in self.active_languages) and self.sense_voice_recognizer:
                 try:
                     sv_s = self.sense_voice_recognizer.create_stream()
@@ -343,15 +353,17 @@ class BusinessASREngine:
 
                     if has_hangul and "ko" in self.active_languages:
                         raw_text = sv_text
+                        self.last_detected_lang = "ko"
                     elif has_hanzi and not has_kana and "zh" in self.active_languages:
                         raw_text = sv_text
+                        self.last_detected_lang = "zh"
                 except Exception as ex:
                     print(f"[ASR:AsianProbe] Error: {ex}")
 
             # 2. Japanese vs European Language Disambiguation
             if not raw_text:
                 t_rz = ""
-                if self.recognizer:
+                if self.recognizer and "ja" in self.active_languages:
                     try:
                         rz_s = self.recognizer.create_stream()
                         rz_s.accept_waveform(16000, pcm_16k_mono)
@@ -364,23 +376,29 @@ class BusinessASREngine:
                 latin_cnt = len(re.findall(r"[A-Za-z]", t_rz))
                 cjk_cnt = len(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", t_rz))
 
-                # If kana is present or CJK characters dominate -> Japanese!
-                if has_kana or (cjk_cnt > 0 and cjk_cnt >= latin_cnt):
+                # If kana is present or CJK characters dominate -> Japanese
+                if t_rz and (has_kana or (cjk_cnt > 0 and cjk_cnt >= latin_cnt)):
                     raw_text = t_rz
+                    self.last_detected_lang = "ja"
 
-                # If Latin characters dominate and European languages are active -> Parakeet TDT v3!
+                # Otherwise if European languages are active -> Parakeet TDT v3
                 elif any(l in self.active_languages for l in ("en", "fr", "de", "es")) and self.parakeet_recognizer:
                     try:
                         p_s = self.parakeet_recognizer.create_stream()
                         p_s.accept_waveform(16000, pcm_16k_mono)
                         self.parakeet_recognizer.decode_stream(p_s)
                         p_text = p_s.result.text.strip()
-                        raw_text = p_text if p_text else t_rz
+                        if p_text:
+                            raw_text = p_text
+                        else:
+                            raw_text = t_rz
                     except Exception as p_ex:
                         print(f"[ASR:Parakeet] Error: {p_ex}")
                         raw_text = t_rz
                 else:
                     raw_text = t_rz
+                    if raw_text:
+                        self.last_detected_lang = "ja"
 
         # ----------------------------------------------------------------------
         # Strategy C: Standard Fallback (ReazonSpeech)

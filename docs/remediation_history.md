@@ -699,3 +699,81 @@
      - キャッシュキーを `models-int8-full-v1` に更新し、破損した空キャッシュを完全破棄。
      - キャッシュ成否によらず `scripts/download_models.py` で全モデルの存在を確実に検証・自動取得する安全機構を配備。
      - これにより、全 INT8 モデル群が 100% 内包された完全自己完結型 Portable パッケージ（約 1.8GB）が確実に生成・リリースされるように復元。
+
+
+## 35. Report.md 全49項目の精査に基づく包括改修・4段オーディオDSPチェーン導入・Python 3.14完全統一
+- **背景・ユーザー要望**:
+  - `docs/report/Report.md`（全49項目）を精査し、実装価値のない項目（5件）を除外した残り44項目の改修計画を策定・実行。
+  - **追加要望1**: ポータブル版（Win/Mac）および CI の Python バージョンを `3.12` から **`3.14` (`3.14.10`)** に完全統一したい。
+  - **追加要望2**: OneDrive 回避時のインストール先は、アンインストーラー不要で「フォルダを消せばOK」の状態を維持できるよう、隠しフォルダ（`%LOCALAPPDATA%`）ではなく分かりやすい場所（ユーザーホーム直下 `C:\Users\<ユーザー名>\hayamimi-polyglot`）にしたい。
+  - **追加要望3**: 音声が ASR に届く前段に、放送局品質の **4段オーディオ DSP チェーン（ノイズゲート、中音域イコライザー、ディエッサー、自動ゲイン制御コンプレッサー）** を通したい。
+  - **追加要望4**: ドキュメントや UI の表現において、過大・誇張な表現は控え、上品で誠実な表現に統一したい。
+
+- **実施内容**:
+  1. **翻訳・辞書・音声認識の品質直結バグ修正 (Phase 1)**:
+     - **`core/translator.py`**:
+       - FuguMT (`ja -> en`) の SentencePiece トークン列末尾に `+ ["</s>"]` を追加し、EOS 欠落による同一フレーズ反復・捏造バグ（`B1`）を解消。
+       - `beam_size=1`（Greedy Decoding）を既定化して CPU 推論速度を約 1.8〜2.5 倍高速化（`P1`）。
+       - スレッドプール終了用の `shutdown(wait=False)` メソッドを追加（`B8`）。
+     - **`dicts/term_replacements.txt` & `core/dictionary.py`**:
+       - 一般英単語と衝突する `rest`, `mom`, `teams`, `zoom`, `slack`, `cs`, `パース` および変換前後が同一の15行を削除（`B3`）。
+       - ASCII ルールに `(?<![A-Za-z0-9])...(?![A-Za-z0-9])`、短いカタカナルールに `(?<![\u30a0-\u30ffー])...(?![\u30a0-\u30ffー])` の境界正規表現を事前コンパイルし、`agenda` ➔ `ageNDA` や `リソース` ➔ `リSaaS` の部分一致破壊を根絶（`B3`, `P2`）。
+       - アジェンダからのキーワード抽出を「固有名詞・カタカナ語・英数字」に限定し、音韻（読み）ファジーマッチの対象もカタカナ語（`_KATAKANA_ONLY_RE`）に限定することで、一般漢字語（「会議」「開発」等）の誤置換を防止（`B12`）。
+       - SudachiPy の遅延初期化・`tokenize()` を `threading.Lock()` で保護し、非日本語テキストでは形態素解析をスキップ、起動時プリウォーム用 `warmup()` を追加（`B15`, `P2`, `P5`）。
+     - **`core/asr_engine.py` & `main.py`**:
+       - 相手トラック（`remote`）の `hint_lang="en"` 固定を撤廃し、相手が日本語・中国語・韓国語等を話した場合も自動言語判定が働くよう修正（`B2`）。
+       - 単一言語選択時は LID 用の複数モデルデコードを省略して対象モデルのみを直接実行（`P3`）。
+       - `BusinessDictionary` インスタンスを外部注入で共有し、`update_hotwords` での不要な ONNX 再ロードを廃止（`B4`, `P4`）。
+     - **`core/vad.py` & `main.py`**:
+       - 白色雑音や打鍵音で常時発火していた `rms > 0.035` の無条件エネルギーフォールバックを撤去し、Silero VAD 確率判定＋ヒステリシス（`threshold=0.45`, `_neg_threshold=0.30`）＋最小有声フレーム数ガード（4フレーム以上）に一本化（`B13`）。
+       - 長尺連続発話は 8 秒（250フレーム）で自動区切りして字幕遅延を抑制（`P1`）。
+
+  2. **4段オーディオ DSP チェーンの実装 (`core/audio/dsp.py` 新設)**:
+     - 追加依存ゼロ（ベクトル化 NumPy のみ、処理時間約 0.3ms）の `AudioDSPChain` を実装し、`main.py` の `_process_segment` 前段に統合：
+       1. **ソフトニー・ノイズゲート**: `-48dBFS` 以下の空調音・PCファン等の定常フロアノイズを減衰。
+       2. **中音域イコライザー**: 85Hz ハイパスで低域ハムを除去し、子音・母音の明瞭度に関わる 1.8kHz 中心の中音域を `+2.0dB` ブースト、7.5kHz 以上をロールオフ。
+       3. **スプリットバンド・ディエッサー**: 4.2kHz〜7.6kHz 帯の歯擦音エネルギー突出を検出し、動的に最大 `-6dB` 抑制。
+       4. **自動ゲイン制御 (AGC) コンプレッサー＆リミッター**: アクティブ音声の80パーセンタイルを `-17dBFS`（最大 `+12dB`）へ引き上げ、`-12dBFS` 以上を 3:1 圧縮、`±0.95` ソフトニーリミッターで音割れを防止。
+     - `_win_loopback_impl.py` / `dual_capture.py`: WASAPI `AUTOCONVERTPCM` で `16000Hz / 1ch` 直接取得を最優先要求し、フォールバック時の線形補間リサンプルに移動平均アンチエイリアシングフィルタを追加（`P6`, `S12`）。
+
+  3. **セキュリティ・UI・ライフサイクル修正 (Phase 2)**:
+     - **`ui/web_server.py`**:
+       - `clear_history()` と SSE `"clear"` イベント配信を実装し、会議停止・クリア時にブラウザ共有ビューの履歴も完全消去（`S1`）。
+       - 起動ごとに生成するワンタイムトークン（`_ACCESS_TOKEN` + HttpOnly Cookie）認証と、ポート 8844 競合時の空きポート自動フォールバック（`8845〜8854`）を実装（`S2`, `S11`）。
+       - DOM から全発言・翻訳を再構築する `rebuildAllLines()` により「全文コピー」ボタンの欠落バグを修正、SSE `onopen`/`onerror` ステータス更新を追加（`B10`, `B11`, `B16`, `S13`）。
+     - **`ui/overlay_window.py` & `ui/control_panel.py` & `main.py`**:
+       - `OverlayWindow.apply_stealth()` で OS API の戻り値を確認し、失敗時はステータスに警告を表示（`S7`）。
+       - セッション世代番号 `_session_id`、有界キュー（`maxsize=8`）、`reset_state()` でのキュー即時パージ、`on_stop_meeting()` の個別 `try/except` 保護を実装（`S1`, `S8`, `B8`, `P7`）。
+       - `_loading_settings` ガードにより起動時に保存済みマイク設定が Default で上書きされるバグ（`B9`）を修正、300ms デバウンス＆アトミック保存（`os.replace`）を導入（`P8`, `S14`）。
+       - ポータブル版（`python/python.exe` 同梱環境）で「⚙️ モデル追加/更新」を押した際は環境保護のため案内ダイアログを表示（`B6`）。
+
+  4. **インストーラー・Python 3.14 ポータブルビルド統一・ドキュメント整備 (Phase 3)**:
+     - **OneDrive 回避先の統一 (`installer_gui.py`, `setup.ps1`, `setup.sh`)**:
+       - OneDrive / iCloud 同期検知時の退避先を、ユーザーホーム直下の `C:\Users\<ユーザー名>\hayamimi-polyglot`（`$HOME/hayamimi-polyglot`）に統一し、「フォルダを消すだけでアンインストール完了」のシンプルさを維持（`S10`）。
+       - `setup.ps1` を UTF-8 with BOM (CRLF)、`setup.sh` / `start.sh` / `Hayamimi Polyglot.command` を LF で保存し、`.gitattributes` を新設（`B5`, `B7`, `O4`）。
+       - `scripts/download_models.py` に `tar.extractall(..., filter="data")` と CLI 引数オプションを導入し、インストーラー全経路から必須モデルが一貫して配備されるよう統合（`B5`, `S5`）。
+     - **Python 3.14 (`3.14.10`) 完全統一 (`scripts/build_portable_win.py`, `scripts/build_portable_mac.py`, `.github/workflows/ci-release-portable.yml`)**:
+       - Windows / macOS ポータブル版の同梱ランタイムを `cpython-3.14.10+20261026-...-install_only_stripped.tar.gz`（macOS wheel は `--python-version 3.14 --abi cp314`）に統一し、CI のビルド実行も `--python 3.14` に統一（`O2`）。
+       - ローカルの `config.json` やモデル内の `test_wavs`、標準ライブラリの `test`/`tkinter`/`idlelib` 等を除外してサイズと個人設定混入を防止（`S4`, `P9`）。
+     - **ライセンス表記補完と上品なドキュメント表現への統一**:
+       - `Third_Party_Notices.md` に NumPy, sounddevice/PortAudio, soundfile, SentencePiece, comtypes, pycaw, FuguMT (`staka`), mojicast CT2 変換モデル、python-build-standalone 等のライセンス表記を補完（`M4`）。
+       - `README.md`, `.github/SECURITY.md`, `.github/CONTRIBUTING.md`, `docs/languages.md` の過大・誇張表現を控え、事実に基づいた上品で誠実な表現に統一（`O1`, `O3`, `S12`）。
+
+
+## 36. Smart App Control (SAC) ブロック要因の精査・公式PSF署名化・未署名バイナリ削減・MOTW対策
+- **背景・ユーザー相談**:
+  - Windows 11 の Smart App Control（スマート アプリ コントロール / SAC）にブロックされるリスクのある箇所が存在しないかの調査・事前相談。
+  - 実機 Authenticode スキャンにより、ポータブル ZIP 版において `python.exe` が未署名である点、未使用の 32bit/ARM64 PortAudio DLL や NumPy テスト用 `.pyd` が未署名である点、および MOTW（Mark of the Web）が付与された際の `.pyd` 実行リスクを特定。
+  - ユーザー指示に基づき、法的ライセンス要件（PSFL v2）を再確認の上で案1（公式 PSF 署名付き Python 3.14 NuGet パッケージ採用）、案2（不要な未署名バイナリの自動削除）、案3-A（README への ZIP プロパティ「許可する (Unblock)」手順の明記）を採択・実装。
+- **実施内容**:
+  1. **Python Software Foundation (PSF) 公式デジタル署名付き Python 3.14 への刷新 (`scripts/build_portable_win.py`)**:
+     - Windows ポータブル版の Python ランタイム取得先を、未署名の `python-build-standalone` から、PSF 公式の NuGet パッケージ（`https://api.nuget.org/v3-flatcontainer/python/3.14.10/python.3.14.10.nupkg`）に変更。
+     - `python.exe`, `pythonw.exe`, `python314.dll`, および標準ライブラリ（`DLLs/`）の全バイナリに PSF の有効な Authenticode 署名が付与され、SAC の評価を正常に通過。
+     - PSFL v2（商用利用・再配布許諾）を再確認し、`Third_Party_Notices.md` に PSF 公式 NuGet パッケージのライセンスおよび署名情報を明記。
+  2. **不要な未署名バイナリの自動削除 (`clean_unnecessary_binaries`)**:
+     - `_sounddevice_data/portaudio-binaries/`: x64 実行時に不要な 32bit 用・ARM64 用・ASIO 用の未署名 DLL 5件を削除し、`libportaudio64bit.dll` のみに整理。
+     - `numpy`: テスト専用の C 拡張 `.pyd`（`_*tests*.pyd`）およびテストスイートを削除。
+     - `python/`: 未署名の pip CLI スタブ（`t32.exe`, `t64.exe` 等 6件）を削除。
+  3. **ドキュメント整備 (`README.md`)**:
+     - Windows 11 でブラウザダウンロードした ZIP を利用する際の Smart App Control / SmartScreen 回避手順（ZIP 展開前の「プロパティ」➔「セキュリティ: 許可する (Unblock)」チェック）を上品・丁寧に案内。
+     - MOTW が付与されない Web ワンライナー版の利便性についても注記。

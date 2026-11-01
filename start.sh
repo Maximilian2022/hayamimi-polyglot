@@ -4,9 +4,9 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
 echo "======================================================="
-echo "  🎙️🌐 Hayamimi Polyglot - macOS (100% Offline)"
+echo "  🎙️🌐 Hayamimi Polyglot - macOS (Offline Mode)"
 echo "  Real-time Multilingual Meeting Interpreter"
-echo "  (Localhost 127.0.0.1:8844 / Zero Telemetry)"
+echo "  (Localhost 127.0.0.1:8844 / No External Telemetry)"
 echo "======================================================="
 
 # Enterprise Proxy & SSL Inspection settings
@@ -40,8 +40,8 @@ if [ ! -f ".venv/bin/python" ] && [ ! -f ".venv/bin/python3" ]; then
     if [ -f "./python/bin/python3" ]; then
         chmod +x ./python/bin/python3
         PY_FLAG="--python ./python/bin/python3"
-    elif command -v python3.12 >/dev/null 2>&1; then
-        PY_FLAG="--python 3.12"
+    elif command -v python3.14 >/dev/null 2>&1; then
+        PY_FLAG="--python 3.14"
     elif command -v python3 >/dev/null 2>&1; then
         PY_FLAG="--python python3"
     fi
@@ -50,7 +50,7 @@ if [ ! -f ".venv/bin/python" ] && [ ! -f ".venv/bin/python3" ]; then
     $UV_CMD venv .venv $PY_FLAG || $UV_CMD venv .venv
 
     if [ -d "wheels" ]; then
-        echo "📦 Installing libraries from bundled offline wheels (Zero external downloads / 100% Offline)..."
+        echo "📦 Installing libraries from bundled offline wheels..."
         $UV_CMD pip install --no-index --find-links ./wheels -r requirements.txt --python .venv/bin/python
     else
         echo "📦 Installing libraries via uv..."

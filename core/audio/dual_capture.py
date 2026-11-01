@@ -1,17 +1,13 @@
 """
 Hayamimi For Business - Dual Track Audio Capture Manager.
-Zero recording to disk. Pure in-memory streaming.
-Separates Track 1 (Self / Microphone) and Track 2 (Remote / Zoom / Teams)
-with zero computational overhead.
+In-memory streaming separating Track 1 (Self / Microphone) and Track 2 (Remote / Meeting App).
 """
 
 from __future__ import annotations
 
 import os
 import platform
-import queue
 import threading
-import time
 from typing import Callable, Optional
 
 import numpy as np
@@ -25,16 +21,25 @@ from .win_loopback import (
 
 
 def _resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int = 16000) -> np.ndarray:
-    """Ultra-fast linear interpolation resampler (zero external dependencies)."""
-    if orig_sr == target_sr:
+    """Anti-aliased linear interpolation resampler (zero external dependencies)."""
+    if orig_sr == target_sr or len(audio) == 0:
         return audio
     orig_len = len(audio)
     target_len = int(round(orig_len * target_sr / orig_sr))
-    if orig_len == 0 or target_len == 0:
+    if target_len <= 0:
         return np.zeros(0, dtype=np.float32)
-    x_orig = np.linspace(0, 1, orig_len, endpoint=False)
-    x_target = np.linspace(0, 1, target_len, endpoint=False)
-    return np.interp(x_target, x_orig, audio).astype(np.float32)
+
+    # Apply simple moving-average low-pass filter prior to downsampling to suppress aliasing
+    x = audio
+    if orig_sr > target_sr:
+        ratio = max(2, int(round(orig_sr / target_sr)))
+        if orig_len > ratio:
+            kernel = np.ones(ratio, dtype=np.float32) / float(ratio)
+            x = np.convolve(x, kernel, mode="same")
+
+    x_orig = np.linspace(0.0, 1.0, orig_len, endpoint=False)
+    x_target = np.linspace(0.0, 1.0, target_len, endpoint=False)
+    return np.interp(x_target, x_orig, x).astype(np.float32)
 
 
 class DualTrackCapture:
@@ -51,12 +56,14 @@ class DualTrackCapture:
         remote_pid: Optional[int] = None,
         sample_rate: int = 16000,
         chunk_size: int = 512,
+        on_error: Optional[Callable[[str, str], None]] = None,
     ):
         self.on_chunk = on_chunk
         self.mic_device = mic_device
         self.remote_pid = remote_pid
         self.sample_rate = sample_rate
         self.chunk_size = chunk_size
+        self.on_error = on_error
 
         self.running = False
         self._stop_event = threading.Event()
@@ -91,8 +98,15 @@ class DualTrackCapture:
         if self._remote_thread and self._remote_thread.is_alive():
             self._remote_thread.join(timeout=1.0)
 
+    def _notify_error(self, track: str, message: str) -> None:
+        if self.on_error:
+            try:
+                self.on_error(track, message)
+            except Exception:
+                pass
+
     def _run_mic(self) -> None:
-        """Capture microphone using robust sounddevice streaming."""
+        """Capture microphone using sounddevice streaming."""
         dev_info = None
         is_wasapi = False
         device_name = "Default"
@@ -139,12 +153,12 @@ class DualTrackCapture:
                 extra_settings=extra_settings,
                 callback=direct_cb,
             ):
-                print(f"[Audio Mic] Direct 16kHz stream successfully started on '{device_name}'.")
+                print(f"[Audio Mic] Direct 16kHz stream started on '{device_name}'.")
                 opened = True
                 while self.running and not self._stop_event.is_set():
                     self._stop_event.wait(0.1)
         except Exception as exc:
-            print(f"[Audio Mic] Direct stream open notice ({exc}). Switching to adaptive native-rate fallback...")
+            print(f"[Audio Mic] Direct stream open notice ({exc}). Switching to native-rate fallback...")
 
         if opened or not self.running or self._stop_event.is_set():
             return
@@ -187,7 +201,9 @@ class DualTrackCapture:
                 while self.running and not self._stop_event.is_set():
                     self._stop_event.wait(0.1)
         except Exception as exc2:
-            print(f"[Audio Mic] Critical: Both direct and native mic capture failed: {exc2}")
+            msg = f"マイク入力の初期化に失敗しました ({device_name}): {exc2}"
+            print(f"[Audio Mic] Critical: {msg}")
+            self._notify_error("self", msg)
 
     def _run_remote(self) -> None:
         """Capture Zoom/Teams or Speaker audio."""
@@ -206,12 +222,10 @@ class DualTrackCapture:
             )
 
             if self.remote_pid and self.remote_pid > 0:
-                # Capture specific application (e.g. Zoom.exe)
                 target_pid = self.remote_pid
                 mode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE
                 print(f"[Audio:Remote] Capturing target application PID: {target_pid}")
             else:
-                # Capture all speaker audio EXCEPT our own process (Default Loopback)
                 target_pid = os.getpid()
                 mode = PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE
                 print(f"[Audio:Remote] Capturing all speaker audio (excluding self PID: {target_pid})")
@@ -264,11 +278,14 @@ class DualTrackCapture:
                 ):
                     while self.running and not self._stop_event.is_set():
                         self._stop_event.wait(0.1)
+            else:
+                self._notify_error("remote", "相手音声（ループバック）デバイスが見つかりませんでした。")
         except Exception as exc:
             print(f"[Audio:Remote] Speaker fallback error: {exc}")
+            self._notify_error("remote", f"相手音声の取得に失敗しました: {exc}")
 
     def _run_remote_mac(self) -> None:
-        """macOS remote audio capture via ScreenCaptureKit / BlackHole."""
+        """macOS remote audio capture via BlackHole / loopback device."""
         try:
             from .mac_loopback import MacScreenCaptureKitAudio
             capture = MacScreenCaptureKitAudio(
@@ -284,6 +301,6 @@ class DualTrackCapture:
                 self.on_chunk("remote", chunk)
         except Exception as exc:
             print(f"[Audio:Remote:Mac] Error: {exc}")
+            self._notify_error("remote", f"macOS 相手音声キャプチャエラー: {exc}")
             while self.running and not self._stop_event.is_set():
                 self._stop_event.wait(0.1)
-

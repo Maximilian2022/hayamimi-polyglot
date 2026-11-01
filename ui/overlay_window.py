@@ -3,8 +3,8 @@ Hayamimi For Business - Transparent Desktop Subtitle Overlay.
 Features:
   - Topmost transparent overlay (PySide6)
   - Click-through (mouse event transparent)
-  - Stealth Mode (SetWindowDisplayAffinity: hidden from Zoom/Teams screen sharing)
-  - Dual-track display: [自分] and [相手] with different colors
+  - Stealth Mode (SetWindowDisplayAffinity: hidden from screen sharing)
+  - Dual-track display: [自分] and [相手] with customizable colors
   - Draggable & resizable
 """
 
@@ -12,13 +12,11 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
-import os
 import platform
-import sys
 from collections import deque
-from typing import Deque, Optional, Tuple
+from typing import Deque, Dict, Optional
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtGui, QtWidgets
 from PySide6.QtCore import Qt, QPoint
 
 
@@ -31,7 +29,7 @@ WDA_EXCLUDEFROMCAPTURE = 0x00000011  # Windows 10 2004+ / Windows 11
 def set_stealth_mode(window_id: int, stealth_on: bool) -> bool:
     """
     Set window display affinity to exclude it from screen capture (Zoom/Teams/Google Meet).
-    Works on both Windows (SetWindowDisplayAffinity) and macOS (NSWindow.sharingType = NSWindowSharingNone).
+    Works on Windows (SetWindowDisplayAffinity) and macOS (NSWindow.sharingType = NSWindowSharingNone).
     """
     system = platform.system()
     if system == "Windows":
@@ -47,7 +45,10 @@ def set_stealth_mode(window_id: int, stealth_on: bool) -> bool:
             return False
     elif system == "Darwin":
         try:
-            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            objc_path = ctypes.util.find_library("objc")
+            if not objc_path:
+                return False
+            objc = ctypes.cdll.LoadLibrary(objc_path)
             objc_msgSend = objc.objc_msgSend
             objc_msgSend.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
             objc_msgSend.restype = ctypes.c_void_p
@@ -58,6 +59,8 @@ def set_stealth_mode(window_id: int, stealth_on: bool) -> bool:
             sel_window = sel_registerName(b"window")
             ns_window = objc_msgSend(ctypes.c_void_p(window_id), sel_window)
             target = ns_window if ns_window else ctypes.c_void_p(window_id)
+            if not target:
+                return False
 
             # NSWindowSharingNone = 0, NSWindowSharingReadOnly = 1
             sel_setSharingType = sel_registerName(b"setSharingType:")
@@ -77,7 +80,7 @@ def set_stealth_mode(window_id: int, stealth_on: bool) -> bool:
 def set_click_through(window_id: int, click_through: bool) -> None:
     """
     Set mouse event pass-through.
-    Works on both Windows (WS_EX_TRANSPARENT) and macOS (ignoresMouseEvents).
+    Works on Windows (WS_EX_TRANSPARENT) and macOS (ignoresMouseEvents).
     """
     system = platform.system()
     if system == "Windows":
@@ -99,7 +102,10 @@ def set_click_through(window_id: int, click_through: bool) -> None:
             pass
     elif system == "Darwin":
         try:
-            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            objc_path = ctypes.util.find_library("objc")
+            if not objc_path:
+                return
+            objc = ctypes.cdll.LoadLibrary(objc_path)
             sel_registerName = objc.sel_registerName
             sel_registerName.argtypes = [ctypes.c_char_p]
             sel_registerName.restype = ctypes.c_void_p
@@ -149,11 +155,11 @@ class OverlayWindow(QtWidgets.QWidget):
         super().__init__(parent)
 
         self.stealth_enabled = True  # Default: hidden from screen sharing
-        self.click_through = False  # Default: draggable until locked
+        self.click_through = False   # Default: draggable until locked
         self.max_lines = 4
-        self.font_family: str = ""   # Default: empty (system default / Meiryo)
-        self.font_size: int = 18     # Default font size in pt/px
-        self.bg_opacity: float = 0.82 # Default dark opacity
+        self.font_family: str = ""
+        self.font_size: int = 18
+        self.bg_opacity: float = 0.82
         self.colors: Dict[str, str] = dict(DEFAULT_COLORS)
         self.history: Deque[SubtitleItem] = deque(maxlen=self.max_lines)
 
@@ -162,13 +168,11 @@ class OverlayWindow(QtWidgets.QWidget):
         self.init_ui()
 
     def init_ui(self):
-        # Window flags: Frameless, Topmost, Tool window (hidden from taskbar)
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
-        # Main layout
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(16, 10, 16, 10)
         layout.setSpacing(6)
@@ -232,28 +236,35 @@ class OverlayWindow(QtWidgets.QWidget):
         self.resize(max(480, width), max(120, height))
 
     def set_color(self, key: str, hex_color: str):
-        self.colors[key] = hex_color
-        self.refresh_display()
+        if QtGui.QColor(hex_color).isValid():
+            self.colors[key] = hex_color
+            self.refresh_display()
 
     def set_colors(self, color_dict: Dict[str, str]):
-        self.colors.update(color_dict)
+        for k, v in color_dict.items():
+            if QtGui.QColor(v).isValid():
+                self.colors[k] = v
         self.refresh_display()
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Apply stealth mode once window handle exists
         self.apply_stealth(self.stealth_enabled)
 
-    def apply_stealth(self, enabled: bool):
+    def apply_stealth(self, enabled: bool) -> bool:
         self.stealth_enabled = enabled
         hwnd = int(self.winId())
-        set_stealth_mode(hwnd, enabled)
+        ok = set_stealth_mode(hwnd, enabled)
         if enabled:
-            self.lbl_stealth.setText("🛡️ 画面共有から非表示中")
-            self.lbl_stealth.setStyleSheet("color: #10B981; font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(16, 185, 129, 0.15); border-radius: 4px;")
+            if ok:
+                self.lbl_stealth.setText("🛡️ 画面共有から非表示中")
+                self.lbl_stealth.setStyleSheet("color: #10B981; font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(16, 185, 129, 0.15); border-radius: 4px;")
+            else:
+                self.lbl_stealth.setText("⚠️ ステルス保護失敗")
+                self.lbl_stealth.setStyleSheet("color: #EF4444; font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(239, 68, 68, 0.2); border-radius: 4px;")
         else:
             self.lbl_stealth.setText("👁️ 画面共有に表示中")
             self.lbl_stealth.setStyleSheet("color: #F59E0B; font-size: 11px; font-weight: bold; padding: 2px 6px; background: rgba(245, 158, 11, 0.15); border-radius: 4px;")
+        return ok
 
     def set_click_through_mode(self, enabled: bool):
         self.click_through = enabled
@@ -277,14 +288,14 @@ class OverlayWindow(QtWidgets.QWidget):
             self.refresh_display()
 
     def update_last_translations(self, translations: Dict[str, str], item_id: str = ""):
-        """Update multicast translations for the matching item by item_id, fallback to last item."""
+        """Update multicast translations strictly for the matching item by item_id."""
         target_item = None
         if item_id:
             for item in reversed(self.history):
                 if item.item_id == item_id:
                     target_item = item
                     break
-        if target_item is None and self.history:
+        elif self.history:
             target_item = self.history[-1]
 
         if target_item is not None:
@@ -292,13 +303,13 @@ class OverlayWindow(QtWidgets.QWidget):
             self.refresh_display()
 
     def refresh_display(self):
-        # Clear content layout
         while self.content_layout.count():
             child = self.content_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
 
-        font_css = f"font-family: '{self.font_family}', Meiryo, 'Yu Gothic UI', sans-serif;" if self.font_family else "font-family: Meiryo, 'Yu Gothic UI', 'Segoe UI', sans-serif;"
+        safe_family = self.font_family.replace("'", "").replace('"', "").replace(";", "")
+        font_css = f"font-family: '{safe_family}', Meiryo, 'Yu Gothic UI', sans-serif;" if safe_family else "font-family: Meiryo, 'Yu Gothic UI', 'Segoe UI', sans-serif;"
 
         if not self.history:
             placeholder = QtWidgets.QLabel("（会議の発言がリアルタイムに表示されます）")
@@ -318,7 +329,6 @@ class OverlayWindow(QtWidgets.QWidget):
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(3)
 
-            # Speaker tag + Original text
             tag_color = tag_self_color if item.track == "self" else tag_remote_color
             tag_label = "自分" if item.track == "self" else "相手"
 
@@ -329,7 +339,6 @@ class OverlayWindow(QtWidgets.QWidget):
             lbl_orig.setWordWrap(True)
             row_layout.addWidget(lbl_orig)
 
-            # Translations (multiple targets)
             for lang, trans_text in item.translations.items():
                 if trans_text:
                     safe_trans = trans_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -344,7 +353,6 @@ class OverlayWindow(QtWidgets.QWidget):
             self.content_layout.addWidget(row)
 
     def paintEvent(self, event):
-        # Render semi-transparent dark rounded container
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         rect = self.rect()
@@ -354,7 +362,6 @@ class OverlayWindow(QtWidgets.QWidget):
         painter.setPen(QtGui.QPen(QtGui.QColor(51, 65, 85, min(255, int(alpha * 0.9))), 1.5))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 12, 12)
 
-    # Mouse drag events
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and not self.click_through:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()

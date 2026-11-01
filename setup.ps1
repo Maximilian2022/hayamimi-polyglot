@@ -1,6 +1,6 @@
-# ==============================================================================
+﻿# ==============================================================================
 # Hayamimi Polyglot - Setup & Updater Launcher (Windows 11)
-# Zero Admin Required. Automatically launches Unified PySide6 GUI via uv.
+# Non-Admin Setup. Launches Unified PySide6 GUI via uv.
 # ==============================================================================
 
 #Requires -Version 5.1
@@ -17,7 +17,7 @@ param(
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-# Enterprise Proxy / SSL Inspection compatibility (Zscaler / Palo Alto etc.)
+# Enterprise Proxy / SSL Inspection compatibility
 if (-not $env:UV_SYSTEM_CERTS) { $env:UV_SYSTEM_CERTS = "true" }
 if (-not $env:PIP_USE_FEATURE) { $env:PIP_USE_FEATURE = "truststore" }
 
@@ -32,7 +32,7 @@ if (-not $uvExe) {
     if (Test-Path $localUv) {
         $uvExe = $localUv
     } else {
-        Write-Host "⬇️ uv (Rust製 高速Python環境マネージャー) をインストール中..." -ForegroundColor Cyan
+        Write-Host "⬇️ uv (Python環境マネージャー) をインストール中..." -ForegroundColor Cyan
         irm https://astral.sh/uv/install.ps1 | iex
         $uvExe = $localUv
     }
@@ -45,23 +45,23 @@ if (-not (Test-Path $uvExe)) {
 
 Write-Host "✓ uv 検出完了: $uvExe" -ForegroundColor Green
 
-# 2. Determine Script Directory & installer_gui.py
-$ScriptDirectory = if ($PSScriptRoot) {
-    $PSScriptRoot
+# 2. Determine Script Directory & installer_gui.py safely (avoid untrusted CWD when piped)
+$ScriptDirectory = $null
+if ($PSScriptRoot) {
+    $ScriptDirectory = $PSScriptRoot
 } elseif ($MyInvocation.MyCommand.Path) {
-    Split-Path -Parent $MyInvocation.MyCommand.Path
-} else {
-    (Get-Location).Path
+    $ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 }
 
-$guiScript = Join-Path $ScriptDirectory "installer_gui.py"
+$guiScript = if ($ScriptDirectory) { Join-Path $ScriptDirectory "installer_gui.py" } else { "" }
 
-# If running via Web one-liner (irm ... | iex), fetch installer_gui.py to TEMP
-if (-not (Test-Path $guiScript)) {
+# If running via Web one-liner (irm ... | iex), fetch installer_gui.py to isolated TEMP dir
+if (-not $guiScript -or -not (Test-Path $guiScript)) {
     Write-Host "⬇️ リモートから最新の GUI インストーラーを取得中..." -ForegroundColor Cyan
     $randSuffix = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
     $tempDir = Join-Path $env:TEMP "hayamimi-setup-$randSuffix"
     New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    $ScriptDirectory = $tempDir
     $guiScript = Join-Path $tempDir "installer_gui.py"
     $remoteGuiUrl = if ($env:HAYAMIMI_GUI_URL) { $env:HAYAMIMI_GUI_URL } else { "https://raw.githubusercontent.com/Maximilian2022/hayamimi-polyglot/main/installer_gui.py" }
     try {
@@ -73,7 +73,7 @@ if (-not (Test-Path $guiScript)) {
 
 # 3. Launch Unified PySide6 GUI Installer
 if (-not $Cli -and -not $Unattended -and (Test-Path $guiScript)) {
-    Write-Host "🚀 統一 GUI インストーラー (PySide6) を起動しています..." -ForegroundColor Cyan
+    Write-Host "🚀 GUI インストーラー (PySide6) を起動しています..." -ForegroundColor Cyan
     & $uvExe run --python 3.14 --with PySide6 python $guiScript
     exit $LASTEXITCODE
 }
@@ -83,7 +83,21 @@ if (-not $Cli -and -not $Unattended -and (Test-Path $guiScript)) {
 # ------------------------------------------------------------------------------
 Write-Host "📋 CLIモードでセットアップを継続します..." -ForegroundColor Yellow
 
-$targetDir = if ($InstallPath) { $InstallPath } else { Join-Path [Environment]::GetFolderPath("MyDocuments") "hayamimi-polyglot" }
+$docsDir = [Environment]::GetFolderPath("MyDocuments")
+$isCloud = $false
+if ($env:OneDrive -and $docsDir.ToLower().StartsWith($env:OneDrive.ToLower())) {
+    $isCloud = $true
+} elseif ($docsDir -match "(?i)(onedrive|google drive|dropbox|icloud)") {
+    $isCloud = $true
+}
+
+$defaultTarget = if ($isCloud) {
+    Join-Path $env:USERPROFILE "hayamimi-polyglot"
+} else {
+    Join-Path $docsDir "hayamimi-polyglot"
+}
+
+$targetDir = if ($InstallPath) { $InstallPath } else { $defaultTarget }
 Write-Host "📁 インストール先: $targetDir" -ForegroundColor Cyan
 
 if (-not (Test-Path $targetDir)) {
@@ -96,10 +110,13 @@ $pyExe = Join-Path $venvDir "Scripts\python.exe"
 Write-Host "🐍 Python 3.14 仮想環境を構築中..." -ForegroundColor Cyan
 & $uvExe venv --clear $venvDir --python 3.14 | Out-Null
 
-if ($ScriptDirectory -ne $targetDir) {
+if ($ScriptDirectory -and ($ScriptDirectory -ne $targetDir) -and (Test-Path (Join-Path $ScriptDirectory "main.py"))) {
     Write-Host "📋 アプリケーションファイルを配置中..." -ForegroundColor Cyan
     Copy-Item -Path (Join-Path $ScriptDirectory "core") -Destination (Join-Path $targetDir "core") -Recurse -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "ui") -Destination (Join-Path $targetDir "ui") -Recurse -Force
+    if (Test-Path (Join-Path $ScriptDirectory "scripts")) {
+        Copy-Item -Path (Join-Path $ScriptDirectory "scripts") -Destination (Join-Path $targetDir "scripts") -Recurse -Force
+    }
     Copy-Item -Path (Join-Path $ScriptDirectory "dicts") -Destination (Join-Path $targetDir "dicts") -Recurse -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "main.py") -Destination (Join-Path $targetDir "main.py") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "config.default.json") -Destination (Join-Path $targetDir "config.default.json") -Force -ErrorAction SilentlyContinue
@@ -109,7 +126,7 @@ if ($ScriptDirectory -ne $targetDir) {
         if (Test-Path $srcConfig) {
             Copy-Item -Path $srcConfig -Destination $targetConfig -Force
         } else {
-            Copy-Item -Path (Join-Path $ScriptDirectory "config.default.json") -Destination $targetConfig -Force
+            Copy-Item -Path (Join-Path $ScriptDirectory "config.default.json") -Destination $targetConfig -Force -ErrorAction SilentlyContinue
         }
     }
     Copy-Item -Path (Join-Path $ScriptDirectory "requirements.txt") -Destination (Join-Path $targetDir "requirements.txt") -Force
@@ -123,39 +140,13 @@ if ($ScriptDirectory -ne $targetDir) {
 Write-Host "📦 依存パッケージを同期中..." -ForegroundColor Cyan
 & $uvExe pip install -r (Join-Path $targetDir "requirements.txt") --python $pyExe --upgrade | Out-Null
 
-# Deploy Models
-$modelsDir = Join-Path $targetDir "models"
-if (-not (Test-Path $modelsDir)) { New-Item -ItemType Directory -Path $modelsDir -Force | Out-Null }
-
-$localCacheList = @(
-    (Join-Path $ScriptDirectory "models"),
-    "D:\hayamimi4b\models",
-    "$env:USERPROFILE\hayamimi4b\models"
-)
-foreach ($cache in $localCacheList) {
-    if ((Test-Path $cache) -and ($cache -ne $modelsDir)) {
-        Write-Host "📦 ローカルキャッシュ ($cache) からモデルを配備中..." -ForegroundColor Cyan
-        $modelNames = @(
-            "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
-            "silero_vad.onnx",
-            "mojicast-m2m100-ct2",
-            "mojicast-fugumt-ja-en-ct2",
-            "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
-            "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
-            "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-        )
-        foreach ($m in $modelNames) {
-            $srcM = Join-Path $cache $m
-            $dstM = Join-Path $modelsDir $m
-            if ((Test-Path $srcM) -and (-not (Test-Path $dstM))) {
-                Write-Host "  -> 配備: $m" -ForegroundColor Gray
-                Copy-Item -Path $srcM -Destination $dstM -Recurse -Force
-            }
-        }
-        break
-    }
+# Ensure AI Models via download_models.py
+$dlScript = Join-Path $targetDir "scripts\download_models.py"
+if (Test-Path $dlScript) {
+    Write-Host "⬇️ 必須 AI モデルを確認・取得中..." -ForegroundColor Cyan
+    & $pyExe $dlScript --models-dir (Join-Path $targetDir "models")
 }
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "🎉 セットアップが正常に完了しました！" -ForegroundColor Green
+Write-Host "🎉 セットアップが正常に完了しました。" -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan

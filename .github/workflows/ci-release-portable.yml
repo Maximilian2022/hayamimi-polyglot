@@ -11,7 +11,7 @@ on:
       - '.gitignore'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # -------------------------------------------------------------
@@ -19,6 +19,8 @@ jobs:
   # -------------------------------------------------------------
   test-oneliner:
     name: Verify One-liner (${{ matrix.os }})
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +75,8 @@ jobs:
   build-and-release:
     name: Build & Release Portable (${{ matrix.os }})
     needs: test-oneliner
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -126,7 +130,7 @@ jobs:
 
       - name: Build & Run Headless Verification Smoke Test
         run: |
-          uv run --python 3.12 python ${{ matrix.build_script }}
+          uv run --python 3.14 python ${{ matrix.build_script }}
         shell: bash
 
       - name: Ensure GitHub Release Exists & Refresh Release Notes

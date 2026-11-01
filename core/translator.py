@@ -1,15 +1,15 @@
 """
 Hayamimi For Business - Local Realtime Multilingual Translation Engine.
-Supports 100+ languages bidirectional translation via M2M-100 (418M INT8),
-plus optimized FuguMT for Japanese -> English.
-Zero network communication. 100% offline. Zero extra download required.
+Supports multilingual bidirectional translation via M2M-100 (418M INT8),
+plus FuguMT for Japanese -> English.
+Runs offline with no external network requests during runtime.
 """
 
 from __future__ import annotations
 
 import concurrent.futures
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 import ctranslate2
 import sentencepiece as spm
@@ -29,8 +29,8 @@ SUPPORTED_LANGUAGES: Dict[str, str] = {
 
 class LocalTranslator:
     """
-    Local CTranslate2-based multilingual translator for Business meetings.
-    Supports ANY pair of languages (ja, en, zh, ko, fr, de, es, etc.) bidirectional.
+    Local CTranslate2-based multilingual translator for business meetings.
+    Supports bidirectional translation across ja, en, zh, ko, fr, de, es.
     """
 
     def __init__(self, models_dir: Path | str | None = None):
@@ -47,13 +47,14 @@ class LocalTranslator:
 
         self.models_dir = Path(models_dir) if models_dir else Path("models")
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="Translator")
+        self._is_shutdown = False
 
-        # 1. Specialized fast FuguMT (ja -> en)
+        # 1. FuguMT (ja -> en)
         self._fugumt_translator: Optional[ctranslate2.Translator] = None
         self._fugumt_source_sp: Optional[spm.SentencePieceProcessor] = None
         self._fugumt_target_sp: Optional[spm.SentencePieceProcessor] = None
 
-        # 2. Universal Multilingual M2M-100 (100 languages bidirectional)
+        # 2. M2M-100 (Multilingual bidirectional)
         self._m2m_translator: Optional[ctranslate2.Translator] = None
         self._m2m_sp: Optional[spm.SentencePieceProcessor] = None
 
@@ -82,7 +83,7 @@ class LocalTranslator:
             except Exception:
                 pass
 
-        # 2. M2M-100 (Any-to-Any 100 languages)
+        # 2. M2M-100 (Any-to-Any)
         m2m_dir = self.models_dir / "mojicast-m2m100-ct2"
         if m2m_dir.is_dir():
             try:
@@ -102,20 +103,19 @@ class LocalTranslator:
 
     def translate(self, text: str, src_lang: str = "ja", tgt_lang: str = "en") -> str:
         """
-        Translate text from src_lang to tgt_lang.
-        Zero external download. Fully local.
+        Translate text from src_lang to tgt_lang locally.
         """
         text = text.strip()
         if not text or src_lang == tgt_lang:
             return text
 
-        # Optimize: Use FuguMT for ja -> en if available
+        # Use FuguMT for ja -> en if available (requires trailing </s> EOS token for Marian models)
         if src_lang == "ja" and tgt_lang == "en" and self._fugumt_translator and self._fugumt_source_sp and self._fugumt_target_sp:
             try:
-                tokens = self._fugumt_source_sp.encode_as_pieces(text)
+                tokens = self._fugumt_source_sp.encode_as_pieces(text) + ["</s>"]
                 results = self._fugumt_translator.translate_batch(
                     [tokens],
-                    beam_size=3,
+                    beam_size=1,
                     no_repeat_ngram_size=3,
                     repetition_penalty=1.1,
                     max_decoding_length=150,
@@ -125,7 +125,7 @@ class LocalTranslator:
             except Exception:
                 pass
 
-        # Universal M2M-100 translation (any pair: ja<->zh, en<->zh, ja<->ko, en<->fr, de<->en, etc.)
+        # Universal M2M-100 translation
         if self._m2m_translator and self._m2m_sp:
             try:
                 pieces = self._m2m_sp.encode_as_pieces(text)
@@ -133,7 +133,7 @@ class LocalTranslator:
                 results = self._m2m_translator.translate_batch(
                     [tokens],
                     target_prefix=[[f"__{tgt_lang}__"]],
-                    beam_size=2,
+                    beam_size=1,
                     no_repeat_ngram_size=3,
                     max_decoding_length=150,
                 )
@@ -155,22 +155,28 @@ class LocalTranslator:
     def translate_async(
         self,
         text: str,
-        direction: str,  # format: "src->tgt" (e.g., "ja->en", "en->ja", "ja->zh", "zh->ja", "ja->ko")
-        callback: Callable[[str, str], None],  # (original, translated) -> None
+        direction: str,
+        callback: Callable[[str, str], None],
     ) -> None:
         """Asynchronously translate without blocking the audio/ASR pipeline."""
-        if not text.strip():
+        if not text.strip() or self._is_shutdown:
             return
 
         def _worker():
+            if self._is_shutdown:
+                return
             if "->" in direction:
                 src, tgt = direction.split("->", 1)
                 res = self.translate(text, src_lang=src.strip(), tgt_lang=tgt.strip())
             else:
                 res = text
-            callback(text, res)
+            if not self._is_shutdown:
+                callback(text, res)
 
-        self._executor.submit(_worker)
+        try:
+            self._executor.submit(_worker)
+        except RuntimeError:
+            pass
 
     def translate_multicast(
         self,
@@ -180,7 +186,6 @@ class LocalTranslator:
     ) -> Dict[str, str]:
         """
         Translate text from src_lang to multiple target languages simultaneously (Max 5 targets).
-        Optimized with CTranslate2 batch inference (approx 40% latency reduction).
         """
         text = text.strip()
         if not text:
@@ -191,7 +196,7 @@ class LocalTranslator:
         if not targets:
             return {}
 
-        # 1. Specialized fast FuguMT for ja -> en if applicable
+        # 1. FuguMT for ja -> en if applicable
         m2m_targets = list(targets)
         if src_lang == "ja" and "en" in targets and self._fugumt_translator and self._fugumt_source_sp and self._fugumt_target_sp:
             try:
@@ -202,20 +207,19 @@ class LocalTranslator:
             except Exception:
                 pass
 
-        # 2. Universal Multilingual M2M-100 batch inference for all remaining targets
+        # 2. M2M-100 batch inference for all remaining targets
         if m2m_targets and self._m2m_translator and self._m2m_sp:
             try:
                 pieces = self._m2m_sp.encode_as_pieces(text)
                 src_tokens = [f"__{src_lang}__"] + pieces + ["</s>"]
-                
-                # Batch inputs
+
                 batch_tokens = [src_tokens] * len(m2m_targets)
                 target_prefixes = [[f"__{tgt}__"] for tgt in m2m_targets]
 
                 batch_results = self._m2m_translator.translate_batch(
                     batch_tokens,
                     target_prefix=target_prefixes,
-                    beam_size=2,
+                    beam_size=1,
                     no_repeat_ngram_size=3,
                     max_decoding_length=150,
                 )
@@ -228,8 +232,7 @@ class LocalTranslator:
                         trans_text = self._m2m_sp.decode_pieces(out_tokens).strip()
                         if trans_text and trans_text != text:
                             results[tgt] = trans_text
-            except Exception as ex:
-                # Fallback to sequential translation if batch fails
+            except Exception:
                 for tgt in m2m_targets:
                     res = self.translate(text, src_lang=src_lang, tgt_lang=tgt)
                     if res and res != text:
@@ -247,14 +250,28 @@ class LocalTranslator:
         text: str,
         src_lang: str,
         target_langs: List[str],
-        callback: Callable[[str, Dict[str, str]], None],  # (original, {tgt: translated}) -> None
+        callback: Callable[[str, Dict[str, str]], None],
     ) -> None:
         """Asynchronously multicast translate to multiple languages."""
-        if not text.strip():
+        if not text.strip() or self._is_shutdown:
             return
 
         def _worker():
+            if self._is_shutdown:
+                return
             results = self.translate_multicast(text, src_lang, target_langs)
-            callback(text, results)
+            if not self._is_shutdown:
+                callback(text, results)
 
-        self._executor.submit(_worker)
+        try:
+            self._executor.submit(_worker)
+        except RuntimeError:
+            pass
+
+    def shutdown(self, wait: bool = False) -> None:
+        """Cleanly shut down the translation worker thread pool."""
+        self._is_shutdown = True
+        try:
+            self._executor.shutdown(wait=wait, cancel_futures=True)
+        except Exception:
+            pass

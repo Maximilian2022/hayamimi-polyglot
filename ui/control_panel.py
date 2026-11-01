@@ -105,6 +105,7 @@ class ControlPanel(QtWidgets.QWidget):
     hotwords_submitted = Signal(str)
     high_accuracy_toggled = Signal(bool)
     update_available = Signal(str)
+    status_warning = Signal(str)
 
     def __init__(self, overlay: OverlayWindow, parent=None):
         super().__init__(parent)
@@ -115,10 +116,18 @@ class ControlPanel(QtWidgets.QWidget):
         self.meeting_lines: List[str] = []
         self._meeting_entries: Dict[str, dict] = {}
         self._drag_pos = QPoint()
+        self._loading_settings: bool = False
+        self.browser_url_provider: Optional[Callable[[], str]] = None
+
+        self._save_timer = QtCore.QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.setInterval(300)
+        self._save_timer.timeout.connect(self.save_settings)
 
         self.init_ui()
         self.update_app_icon(False)
         self.update_available.connect(self._on_update_available)
+        self.status_warning.connect(self._on_status_warning)
 
     def init_ui(self):
         self.setWindowTitle("Hayamimi Polyglot - コントロールパネル")
@@ -291,6 +300,7 @@ class ControlPanel(QtWidgets.QWidget):
         self.combo_app.addItem("スピーカー全体 (Default Loopback)", 0)
         self.populate_audio_processes()
         self.populate_microphones()
+        self.combo_mic.currentIndexChanged.connect(lambda _: self.schedule_save_settings())
         row_app.addWidget(self.combo_app, 1)
 
         btn_refresh_apps = QtWidgets.QPushButton("🔄")
@@ -304,7 +314,7 @@ class ControlPanel(QtWidgets.QWidget):
         self.chk_high_acc = QtWidgets.QCheckBox("⚡ 高精度 ASR モード (英語: Parakeet TDT / 多言語: SenseVoice)")
         self.chk_high_acc.setChecked(True)
         self.chk_high_acc.setStyleSheet("color: #38BDF8; font-weight: bold;")
-        self.chk_high_acc.setToolTip("【推奨: デフォルトON】\n英語は世界最高水準の Parakeet TDT v2 で、他言語は SenseVoice Small で超高精度デコードします。\nOFF にすると軽量な ReazonSpeech のみで動作します。")
+        self.chk_high_acc.setToolTip("【推奨: デフォルトON】\n英語・欧州言語は Parakeet TDT v3、中国語・韓国語は SenseVoice Small を併用して認識します。\nOFF にすると軽量な ReazonSpeech のみで動作します。")
         self.chk_high_acc.toggled.connect(self.on_high_accuracy_toggled)
         row_asr.addWidget(self.chk_high_acc)
         settings_layout.addLayout(row_asr)
@@ -570,10 +580,15 @@ class ControlPanel(QtWidgets.QWidget):
             self.overlay.set_font_family(font_name)
         self.save_settings()
 
+    def schedule_save_settings(self):
+        if getattr(self, "_loading_settings", False):
+            return
+        self._save_timer.start()
+
     def on_font_size_changed(self, size: int):
         self.lbl_font_size_val.setText(f"{size}px")
         self.overlay.set_font_size(size)
-        self.save_settings()
+        self.schedule_save_settings()
 
     def apply_area_preset(self, w: int, h: int):
         self.slider_width.blockSignals(True)
@@ -593,7 +608,7 @@ class ControlPanel(QtWidgets.QWidget):
         self.lbl_width_val.setText(f"{w}px")
         self.lbl_height_val.setText(f"{h}px")
         self.overlay.set_overlay_size(w, h)
-        self.save_settings()
+        self.schedule_save_settings()
 
     def _create_color_button(self, color_key: str) -> QtWidgets.QPushButton:
         initial_hex = self.overlay.colors.get(color_key, "#FFFFFF")
@@ -626,13 +641,14 @@ class ControlPanel(QtWidgets.QWidget):
     def on_opacity_changed(self, val: int):
         self.lbl_opacity_val.setText(f"{val}%")
         self.overlay.set_bg_opacity(val / 100.0)
-        self.save_settings()
+        self.schedule_save_settings()
 
     def load_settings(self):
         """Load persistent settings from config.json (falls back to config.default.json)."""
         target_path = _CONFIG_PATH if _CONFIG_PATH.exists() else _CONFIG_DEFAULT_PATH
         if not target_path.exists():
             return
+        self._loading_settings = True
         try:
             with open(target_path, "r", encoding="utf-8") as f:
                 cfg = json.load(f)
@@ -665,13 +681,15 @@ class ControlPanel(QtWidgets.QWidget):
             self.lbl_opacity_val.setText(f"{opac_pct}%")
             self.overlay.set_bg_opacity(opac_pct / 100.0)
 
-            # Saved colors
+            # Saved colors (validate with QColor to prevent stylesheet injection)
             saved_colors = ui_cfg.get("colors", {})
             if isinstance(saved_colors, dict):
                 for k, v in saved_colors.items():
-                    self.overlay.colors[k] = v
-                    if k in self.color_btns:
-                        self.color_btns[k].setStyleSheet(f"background-color: {v}; border: 1px solid #64748B; border-radius: 3px;")
+                    if isinstance(v, str) and QtGui.QColor(v).isValid():
+                        hex_v = QtGui.QColor(v).name()
+                        self.overlay.colors[k] = hex_v
+                        if k in self.color_btns:
+                            self.color_btns[k].setStyleSheet(f"background-color: {hex_v}; border: 1px solid #64748B; border-radius: 3px;")
                 self.overlay.refresh_display()
 
             # Saved microphone
@@ -694,14 +712,21 @@ class ControlPanel(QtWidgets.QWidget):
             self.chk_high_acc.setChecked(bool(high_acc))
         except Exception as e:
             print(f"[Config] Error loading settings: {e}")
+        finally:
+            self._loading_settings = False
 
     def save_settings(self):
-        """Save settings to config.json."""
+        """Atomically save settings to config.json."""
+        if getattr(self, "_loading_settings", False):
+            return
         try:
             cfg = {}
             if _CONFIG_PATH.exists():
-                with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
+                try:
+                    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                except Exception:
+                    cfg = {}
 
             ui_cfg = cfg.setdefault("ui", {})
             curr_text = self.combo_font.currentText()
@@ -719,8 +744,10 @@ class ControlPanel(QtWidgets.QWidget):
             asr_cfg = cfg.setdefault("asr", {})
             asr_cfg["high_accuracy_mode"] = self.chk_high_acc.isChecked()
 
-            with open(_CONFIG_PATH, "w", encoding="utf-8") as f:
+            tmp_path = _CONFIG_PATH.with_suffix(".json.tmp")
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, _CONFIG_PATH)
         except Exception as e:
             print(f"[Config] Error saving settings: {e}")
 
@@ -763,11 +790,12 @@ class ControlPanel(QtWidgets.QWidget):
 
     def populate_microphones(self):
         """Scan active input microphones without duplicates."""
-        current_data = self.combo_mic.currentData() if hasattr(self, "combo_mic") else None
-        self.combo_mic.clear()
-        self.combo_mic.addItem("システム既定のマイク (Default)", None)
-
+        current_text = self.combo_mic.currentText() if hasattr(self, "combo_mic") else ""
+        self.combo_mic.blockSignals(True)
         try:
+            self.combo_mic.clear()
+            self.combo_mic.addItem("システム既定のマイク (Default)", None)
+
             import sounddevice as sd
             hostapis = sd.query_hostapis()
             # On Windows, prefer WASAPI hostapi to avoid MME/DirectSound duplicates
@@ -784,14 +812,16 @@ class ControlPanel(QtWidgets.QWidget):
                         seen_names.add(name)
                         self.combo_mic.addItem(name, i)
 
-            # Restore previous selection if possible
-            if current_data is not None:
+            # Restore previous selection by name if possible
+            if current_text:
                 for idx in range(self.combo_mic.count()):
-                    if self.combo_mic.itemData(idx) == current_data:
+                    if self.combo_mic.itemText(idx) == current_text:
                         self.combo_mic.setCurrentIndex(idx)
                         break
         except Exception as ex:
             print(f"[Audio] Error enumerating microphones: {ex}")
+        finally:
+            self.combo_mic.blockSignals(False)
 
     def on_pin_toggled(self, checked: bool):
         self.is_pinned = checked
@@ -811,13 +841,19 @@ class ControlPanel(QtWidgets.QWidget):
             except Exception:
                 pass
 
+    def _on_status_warning(self, message: str):
+        self.lbl_status.setText(f"⚠️ {message}")
+        self.lbl_status.setStyleSheet("color: #F59E0B; font-weight: bold; font-size: 11px;")
+
     def on_stealth_toggled(self, checked: bool):
-        self.overlay.apply_stealth(checked)
-        # Apply stealth protection to control panel window
+        ok_ov = self.overlay.apply_stealth(checked)
+        ok_panel = False
         try:
-            set_stealth_mode(int(self.winId()), checked)
+            ok_panel = set_stealth_mode(int(self.winId()), checked)
         except Exception as e:
             print(f"[Stealth Panel] Error: {e}")
+        if checked and (not ok_ov or not ok_panel):
+            self._on_status_warning("ステルス保護の一部が適用できませんでした")
 
     def update_app_icon(self, is_active: bool):
         """Update window icons across taskbar, control panel, overlay, and system tray."""
@@ -839,7 +875,15 @@ class ControlPanel(QtWidgets.QWidget):
             self.overlay.show()
 
     def open_browser_view(self):
-        webbrowser.open("http://127.0.0.1:8844/view")
+        if self.browser_url_provider is not None:
+            url = self.browser_url_provider()
+        else:
+            try:
+                from ui.web_server import get_access_token
+                url = f"http://127.0.0.1:8844/view?token={get_access_token()}"
+            except Exception:
+                url = "http://127.0.0.1:8844/view"
+        webbrowser.open(url)
 
     def toggle_meeting(self):
         if not self.is_running:
@@ -945,11 +989,24 @@ class ControlPanel(QtWidgets.QWidget):
         threading.Thread(target=_worker, daemon=True).start()
 
     def open_updater(self):
-        """Launch the setup/updater GUI to download extra models or update version."""
+        """Launch the setup/updater script or inform portable users."""
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        is_win = platform.system() == "Windows"
+        setup_script = os.path.join(root, "setup.ps1" if is_win else "setup.sh")
+
+        if not os.path.isfile(setup_script):
+            QtWidgets.QMessageBox.information(
+                self,
+                "ポータブル版のご案内",
+                "現在お使いの環境は全モデル同梱済みのポータブル版です。\n"
+                "新しいバージョンへ更新する場合は、GitHub Releases ページから最新版のポータブル ZIP をダウンロードしてください。",
+            )
+            return
+
         reply = QtWidgets.QMessageBox.question(
             self,
             "モデル追加 / アップデート",
-            "AIモデルの追加ダウンロードや環境のクリーン再構築を行うため、現在のアプリを終了してアップデータを起動します。\n\n（※設定は自動保存され、更新完了後に自動で再起動されます）\n\nアップデータを起動しますか？",
+            "AIモデルの確認・更新を行うため、現在のアプリを終了してセットアップを起動します。\n\n（※設定は自動保存されます）\n\n起動しますか？",
             QtWidgets.QMessageBox.StandardButton.Yes | QtWidgets.QMessageBox.StandardButton.No,
             QtWidgets.QMessageBox.StandardButton.Yes,
         )
@@ -957,21 +1014,16 @@ class ControlPanel(QtWidgets.QWidget):
             return
 
         self.save_settings()
-        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        if platform.system() == "Windows":
-            setup_script = os.path.join(root, "setup.ps1")
-            if os.path.isfile(setup_script):
-                CREATE_NEW_PROCESS_GROUP = 0x00000200
-                DETACHED_PROCESS = 0x00000008
-                subprocess.Popen(
-                    ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", setup_script],
-                    cwd=root,
-                    creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
-                )
+        if is_win:
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            DETACHED_PROCESS = 0x00000008
+            subprocess.Popen(
+                ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File", setup_script],
+                cwd=root,
+                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            )
         else:
-            setup_script = os.path.join(root, "setup.sh")
-            if os.path.isfile(setup_script):
-                subprocess.Popen(["bash", setup_script], cwd=root, start_new_session=True)
+            subprocess.Popen(["bash", setup_script], cwd=root, start_new_session=True)
 
         QtWidgets.QApplication.quit()
 
@@ -987,14 +1039,10 @@ class ControlPanel(QtWidgets.QWidget):
         self._rebuild_meeting_lines()
 
     def update_transcript_translation(self, item_id: str, translations: Dict[str, str]):
-        """Update translation for an existing utterance."""
-        if item_id in self._meeting_entries:
+        """Update translation strictly for the matching utterance ID."""
+        if item_id and item_id in self._meeting_entries:
             self._meeting_entries[item_id]["translations"].update(translations)
-        elif self._meeting_entries:
-            # Fallback to last entry
-            last_key = list(self._meeting_entries.keys())[-1]
-            self._meeting_entries[last_key]["translations"].update(translations)
-        self._rebuild_meeting_lines()
+            self._rebuild_meeting_lines()
 
     def _rebuild_meeting_lines(self):
         lines = []

@@ -39,7 +39,7 @@ repo_download.zip
 docs/report/
 
 # ==============================================================================
-# OS Artifacts
+# OS Artifacts & Portable Build Directories
 # ==============================================================================
 .DS_Store
 Thumbs.db
@@ -48,5 +48,7 @@ ehthumbs.db
 .idea/
 
 build_win_portable/
+build_mac_portable/
+build_test_*/
 dist_builder*.py
 hayamimi-polyglot-*.zip

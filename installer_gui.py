@@ -1,26 +1,39 @@
 #!/usr/bin/env python3
 """
-Hayamimi Polyglot - Unified Modern GUI Installer & Updater
-Cross-platform: Windows 11 & macOS (12 Monterey ~ 15 Sequoia)
+Hayamimi Polyglot - Unified GUI Installer & Updater
+Cross-platform: Windows 11 & macOS (14 Sonoma / 15 Sequoia)
 Powered by PySide6 & uv
 """
 
+from __future__ import annotations
+
 import os
-import sys
 import platform
 import shutil
+import subprocess
+import sys
 import tarfile
 import urllib.request
-import subprocess
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFont, QColor, QPalette, QCursor
+from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QCheckBox, QGroupBox,
-    QProgressBar, QPlainTextEdit, QFileDialog, QSizePolicy
+    QApplication,
+    QCheckBox,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
 )
+
 
 # ------------------------------------------------------------------------------
 # 1. Smart Install Path Detection (Cloud Sync Avoidance) & True Desktop Path
@@ -39,8 +52,10 @@ def get_desktop_dir() -> Path:
         try:
             out = subprocess.check_output(
                 ["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('Desktop')"],
-                text=True, encoding="utf-8", errors="replace",
-                creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=0x08000000 if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
             ).strip()
             if out and Path(out).exists():
                 return Path(out)
@@ -50,48 +65,92 @@ def get_desktop_dir() -> Path:
 
 
 def get_smart_install_path() -> Path:
-    # If launched from existing repo directory
+    """
+    Return a clean, user-visible install directory outside OneDrive/iCloud sync.
+    Uninstallation requires only deleting this folder.
+    """
     script_dir = Path(__file__).resolve().parent
     if (script_dir / "core" / "asr_engine.py").exists():
         return script_dir
 
     system = platform.system()
     home = Path.home()
+    docs = home / "Documents"
 
     if system == "Darwin":
-        docs = home / "Documents"
-        # Check iCloud Drive sync
-        is_cloud = False
         icloud_dir = home / "Library" / "Mobile Documents" / "com~apple~CloudDocs" / "Documents"
-        if docs.is_symlink() or "com~apple~CloudDocs" in str(docs.resolve()) or icloud_dir.exists():
-            is_cloud = True
+        is_cloud = (
+            docs.is_symlink()
+            or "com~apple~CloudDocs" in str(docs.resolve())
+            or icloud_dir.exists()
+        )
+        return (home / "hayamimi-polyglot") if is_cloud else (docs / "hayamimi-polyglot")
 
-        if is_cloud:
-            return home / "hayamimi-polyglot"
-        return docs / "hayamimi-polyglot"
+    if system == "Windows":
+        try:
+            real_docs_out = subprocess.check_output(
+                ["powershell", "-NoProfile", "-Command", "[Environment]::GetFolderPath('MyDocuments')"],
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=0x08000000 if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            ).strip()
+            if real_docs_out:
+                docs = Path(real_docs_out)
+        except Exception:
+            pass
 
-    elif system == "Windows":
-        docs = home / "Documents"
-        is_cloud = False
         onedrive = os.environ.get("OneDrive", "")
-        if onedrive and str(docs).lower().startswith(onedrive.lower()):
-            is_cloud = True
-        elif any(k in str(docs).lower() for k in ["onedrive", "google drive", "dropbox", "icloud"]):
-            is_cloud = True
-
-        if is_cloud:
-            # Check C:\ root write permission
-            try:
-                test_file = Path("C:/") / f"hayamimi_test_{os.getpid()}.tmp"
-                test_file.write_text("test")
-                test_file.unlink(missing_ok=True)
-                return Path("C:/hayamimi-polyglot")
-            except Exception:
-                local_appdata = os.environ.get("LOCALAPPDATA", str(home / "AppData" / "Local"))
-                return Path(local_appdata) / "Programs" / "hayamimi-polyglot"
-        return docs / "hayamimi-polyglot"
+        docs_lower = str(docs).lower()
+        is_cloud = bool(
+            (onedrive and docs_lower.startswith(onedrive.lower()))
+            or any(k in docs_lower for k in ("onedrive", "google drive", "dropbox", "icloud"))
+        )
+        # Use user home directory (C:\Users\<User>\hayamimi-polyglot) when Documents is cloud-synced:
+        # visible in Explorer, never synced by OneDrive, and cleanly removable by deleting the folder.
+        return (home / "hayamimi-polyglot") if is_cloud else (docs / "hayamimi-polyglot")
 
     return home / "hayamimi-polyglot"
+
+
+def _safe_extract_tar(tar_path: Path, dst_dir: Path) -> None:
+    with tarfile.open(tar_path, "r:bz2") as tar:
+        try:
+            tar.extractall(path=dst_dir, filter="data")
+        except TypeError:
+            tar.extractall(path=dst_dir)
+
+
+def _download_url(url: str, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    req = urllib.request.Request(url, headers={"User-Agent": "Hayamimi-Installer"})
+    tmp = dst.with_suffix(dst.suffix + ".tmp")
+    with urllib.request.urlopen(req, timeout=60) as resp, open(tmp, "wb") as out:
+        shutil.copyfileobj(resp, out)
+    tmp.replace(dst)
+
+
+def _copy_dicts_preserving_extensions(src_dicts: Path, dst_dicts: Path) -> None:
+    """Update built-in dictionary files while preserving user extension dictionaries."""
+    ext_backup: dict[str, bytes] = {}
+    ext_dir = dst_dicts / "extensions"
+    if ext_dir.is_dir():
+        for f in ext_dir.glob("*.txt"):
+            try:
+                ext_backup[f.name] = f.read_bytes()
+            except Exception:
+                pass
+
+    if dst_dicts.exists():
+        shutil.rmtree(dst_dicts)
+    shutil.copytree(src_dicts, dst_dicts)
+
+    new_ext_dir = dst_dicts / "extensions"
+    new_ext_dir.mkdir(parents=True, exist_ok=True)
+    for name, content in ext_backup.items():
+        target_f = new_ext_dir / name
+        if not target_f.exists():
+            target_f.write_bytes(content)
 
 
 # ------------------------------------------------------------------------------
@@ -102,13 +161,20 @@ class InstallWorker(QThread):
     progress_signal = Signal(int)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, target_dir: Path, clean_venv: bool, with_parakeet: bool, with_sense_voice: bool, with_zipformer_vi: bool = False, should_launch: bool = True):
+    def __init__(
+        self,
+        target_dir: Path,
+        clean_venv: bool,
+        with_parakeet: bool,
+        with_sense_voice: bool,
+        with_zipformer_vi: bool = False,
+        should_launch: bool = True,
+    ):
         super().__init__()
         self.target_dir = target_dir
         self.clean_venv = clean_venv
         self.with_parakeet = with_parakeet
         self.with_sense_voice = with_sense_voice
-        self.with_zipformer_vi = False  # Disabled for 100% commercial license compliance
         self.should_launch = should_launch
 
     def run(self):
@@ -118,13 +184,12 @@ class InstallWorker(QThread):
             self.target_dir.mkdir(parents=True, exist_ok=True)
 
             # 1. Verify / Find uv
-            self.log_signal.emit("🔍 uv (Rust製 高速環境マネージャー) を確認中...")
+            self.log_signal.emit("🔍 uv (Python環境マネージャー) を確認中...")
             uv_exe = shutil.which("uv")
             if not uv_exe:
-                # Check common install locations
                 candidates = [
                     Path.home() / ".local" / "bin" / ("uv.exe" if platform.system() == "Windows" else "uv"),
-                    Path.home() / ".cargo" / "bin" / ("uv.exe" if platform.system() == "Windows" else "uv")
+                    Path.home() / ".cargo" / "bin" / ("uv.exe" if platform.system() == "Windows" else "uv"),
                 ]
                 for c in candidates:
                     if c.exists():
@@ -136,12 +201,12 @@ class InstallWorker(QThread):
                 if platform.system() == "Windows":
                     cmd = 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://astral.sh/uv/install.ps1 | iex"'
                 else:
-                    cmd = 'curl -LsSf https://astral.sh/uv/install.sh | sh'
+                    cmd = "curl -LsSf https://astral.sh/uv/install.sh | sh"
                 subprocess.run(cmd, shell=True, check=True)
                 uv_exe = str(Path.home() / ".local" / "bin" / ("uv.exe" if platform.system() == "Windows" else "uv"))
 
             self.log_signal.emit(f"✓ uv 検出完了: {uv_exe}")
-            self.progress_signal.emit(25)
+            self.progress_signal.emit(20)
 
             # 2. Virtual Environment (Python 3.14)
             venv_dir = self.target_dir / ".venv"
@@ -149,42 +214,49 @@ class InstallWorker(QThread):
 
             venv_ready = False
             if self.clean_venv:
-                self.log_signal.emit("🐍 Python 3.14 仮想環境をクリーン再構築中 (--clear)...")
-                self.log_signal.emit("   ※ uv ローカルキャッシュから展開されるため再DLゼロ・1〜2秒で完了")
+                self.log_signal.emit("🐍 Python 3.14 仮想環境をクリーン構築中 (--clear)...")
                 cmd = [uv_exe, "venv", "--clear", str(venv_dir), "--python", "3.14"]
                 try:
                     subprocess.run(
-                        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        text=True, encoding="utf-8", errors="replace"
+                        cmd,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     venv_ready = True
-                    self.log_signal.emit("✓ 仮想環境のクリーン再構築が完了しました")
-                except Exception as clear_err:
-                    self.log_signal.emit(f"⚠️ アプリケーション実行中のためクリアをスキップし、既存の仮想環境を健全更新します")
+                    self.log_signal.emit("✓ 仮想環境の構築が完了しました")
+                except Exception:
+                    self.log_signal.emit("⚠️ 既存の仮想環境を更新モードで利用します")
 
             if not venv_ready:
                 if not py_exe.exists():
                     self.log_signal.emit("🐍 Python 3.14 仮想環境を新規作成中...")
                     cmd = [uv_exe, "venv", str(venv_dir), "--python", "3.14"]
                     subprocess.run(
-                        cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                        text=True, encoding="utf-8", errors="replace"
+                        cmd,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                 else:
-                    self.log_signal.emit("✓ 既存の Python 3.14 仮想環境を再利用・更新します")
+                    self.log_signal.emit("✓ 既存の Python 3.14 仮想環境を再利用します")
 
-            self.log_signal.emit(f"✓ Python 3.14 環境準備完了: {py_exe}")
-            self.progress_signal.emit(40)
+            self.progress_signal.emit(35)
 
-            # 3. Deploy / Synchronize Application Files (Git pull OR Remote ZIP download)
+            # 3. Deploy / Synchronize Application Files
             script_dir = Path(__file__).resolve().parent
             is_same_dir = script_dir.resolve() == self.target_dir.resolve()
             git_dir = self.target_dir / ".git"
             has_git = bool(shutil.which("git") and git_dir.is_dir())
 
-            # Pattern 1: Target directory is an existing Git repository -> pull latest from GitHub
             if has_git:
-                self.log_signal.emit("🔄 Git リポジトリを検出: GitHub から最新コードを取得中 (git pull)...")
+                self.log_signal.emit("🔄 Git リポジトリを検出: 最新コードを取得中 (git pull)...")
                 try:
                     res = subprocess.run(
                         ["git", "pull", "origin", "main"],
@@ -197,23 +269,38 @@ class InstallWorker(QThread):
                         timeout=30,
                     )
                     if res.returncode == 0:
-                        self.log_signal.emit(f"✓ GitHub から最新版への同期完了:\n  {res.stdout.strip()}")
+                        self.log_signal.emit(f"✓ 同期完了:\n  {res.stdout.strip()}")
                     else:
-                        self.log_signal.emit(f"⚠️ git pull 警告: {res.stdout.strip()}")
+                        self.log_signal.emit(f"⚠️ git pull 通知: {res.stdout.strip()}")
                 except Exception as g_err:
-                    self.log_signal.emit(f"⚠️ git pull 実行時例外: {g_err}")
+                    self.log_signal.emit(f"⚠️ git pull 例外: {g_err}")
 
-            # Pattern 2: Script running from different local folder -> copy files to target
             elif (script_dir / "core" / "asr_engine.py").exists() and not is_same_dir:
                 self.log_signal.emit("📋 ローカルからアプリケーションファイルを配置中...")
-                for item in ["core", "ui", "dicts"]:
+                for item in ["core", "ui", "scripts"]:
                     src = script_dir / item
                     dst = self.target_dir / item
                     if src.exists():
                         if dst.exists():
                             shutil.rmtree(dst)
                         shutil.copytree(src, dst)
-                for item in ["main.py", "config.default.json", "requirements.txt", ".python-version", "version.txt", "start.bat", "start.sh", "installer_gui.py", "test_polyglot_suite.py"]:
+                if (script_dir / "dicts").exists():
+                    _copy_dicts_preserving_extensions(script_dir / "dicts", self.target_dir / "dicts")
+
+                for item in [
+                    "main.py",
+                    "config.default.json",
+                    "requirements.txt",
+                    ".python-version",
+                    "version.txt",
+                    "start.bat",
+                    "start.sh",
+                    "setup.ps1",
+                    "setup.sh",
+                    "installer_gui.py",
+                    "test_polyglot_suite.py",
+                    "Third_Party_Notices.md",
+                ]:
                     src = script_dir / item
                     dst = self.target_dir / item
                     if src.exists():
@@ -221,28 +308,29 @@ class InstallWorker(QThread):
                 if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
                     (self.target_dir / "start.sh").chmod(0o755)
 
-            # Pattern 3: Not a git repo or running updater -> Download latest ZIP from GitHub (Public)
             elif not is_same_dir or not (self.target_dir / "main.py").exists():
-                self.log_signal.emit("🌐 GitHub (Public) から最新のプログラムファイルをダウンロード中...")
-                repo_zip_url = os.environ.get("HAYAMIMI_REPO_ZIP", "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip")
+                self.log_signal.emit("🌐 GitHub からプログラムファイルをダウンロード中...")
+                repo_zip_url = os.environ.get(
+                    "HAYAMIMI_REPO_ZIP",
+                    "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip",
+                )
                 zip_path = self.target_dir / "repo_download.zip"
                 deployed_ok = False
                 try:
                     import zipfile
-                    headers = {"User-Agent": "Hayamimi-Installer"}
-                    req = urllib.request.Request(repo_zip_url, headers=headers)
-                    with urllib.request.urlopen(req, timeout=15) as resp, open(zip_path, "wb") as f:
-                        f.write(resp.read())
+                    _download_url(repo_zip_url, zip_path)
 
                     self.log_signal.emit("📦 プログラムファイルを展開中...")
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
                         extract_temp = self.target_dir / "_temp_extract"
                         zip_ref.extractall(extract_temp)
                         extracted_root = next(extract_temp.glob("hayamimi-polyglot*"), extract_temp)
                         for item in extracted_root.iterdir():
                             dst = self.target_dir / item.name
-                            # Preserve user config, models, and virtualenv
                             if item.name in ("config.json", "models", ".venv"):
+                                continue
+                            if item.name == "dicts" and item.is_dir():
+                                _copy_dicts_preserving_extensions(item, dst)
                                 continue
                             if dst.exists():
                                 if dst.is_dir():
@@ -252,137 +340,173 @@ class InstallWorker(QThread):
                             shutil.move(str(item), str(dst))
                         shutil.rmtree(extract_temp, ignore_errors=True)
                     zip_path.unlink(missing_ok=True)
-                    self.log_signal.emit("✓ プログラムファイルのダウンロード・展開が完了しました！")
+                    self.log_signal.emit("✓ プログラムファイルの展開が完了しました")
                     if platform.system() != "Windows" and (self.target_dir / "start.sh").exists():
                         (self.target_dir / "start.sh").chmod(0o755)
                     deployed_ok = True
                 except Exception as ex:
-                    self.log_signal.emit(f"⚠️ リモートZIP取得失敗 ({ex})。git clone による代替を試行中...")
+                    self.log_signal.emit(f"⚠️ ZIP取得失敗 ({ex})。git clone を試行中...")
 
                 if not deployed_ok and shutil.which("git"):
                     try:
-                        self.log_signal.emit("🔄 git clone による代替取得中...")
                         subprocess.run(
                             ["git", "clone", "https://github.com/Maximilian2022/hayamimi-polyglot.git", str(self.target_dir)],
-                            check=True, text=True, encoding="utf-8", errors="replace"
+                            check=True,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
                         )
-                        self.log_signal.emit("✓ git clone による配置が完了しました！")
+                        self.log_signal.emit("✓ git clone による配置が完了しました")
                     except Exception as g_ex:
                         self.log_signal.emit(f"❌ ファイル取得に失敗しました: {g_ex}")
 
             # 4. Synchronize Dependencies
-            self.log_signal.emit("📦 依存ライブラリを同期中 (PySide6, sherpa-onnx, ctranslate2)...")
+            self.log_signal.emit("📦 依存ライブラリを同期中 (PySide6, sherpa-onnx, ctranslate2, sudachipy)...")
             req_file = self.target_dir / "requirements.txt"
             cmd = [uv_exe, "pip", "install", "-r", str(req_file), "--python", str(py_exe), "--upgrade"]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
             if res.returncode != 0:
-                self.log_signal.emit(f"⚠️ パッケージインストール警告: {res.stdout}")
-            self.log_signal.emit("✓ 依存ライブラリの同期完了！")
-            self.progress_signal.emit(65)
+                self.log_signal.emit(f"⚠️ パッケージインストール通知: {res.stdout}")
+            self.log_signal.emit("✓ 依存ライブラリの同期完了")
+            self.progress_signal.emit(55)
 
-            # 5. Populate / Download Models
+            # 5. Populate / Download All Required Models
             models_dir = self.target_dir / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
 
-            # Check local models cache
-            local_cache_candidates = [
-                script_dir / "models",
-                Path("D:/hayamimi4b/models"),
-                Path.home() / "hayamimi4b/models"
-            ]
-            for cache in local_cache_candidates:
-                if cache.exists() and cache.resolve() != models_dir.resolve():
-                    self.log_signal.emit(f"📦 ローカルキャッシュ ({cache}) から基本モデルを配備中...")
-                    for m in [
-                        "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
-                        "silero_vad.onnx",
-                        "mojicast-m2m100-ct2",
-                        "mojicast-fugumt-ja-en-ct2",
-                        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
-                        "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
-                        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
-                        "sherpa-onnx-zipformer-vi-30M-int8-2026-02-09",
-                    ]:
-                        src = cache / m
-                        dst = models_dir / m
-                        if src.exists() and not dst.exists():
-                            self.log_signal.emit(f"  -> 配備: {m}")
-                            if src.is_dir():
-                                shutil.copytree(src, dst)
-                            else:
-                                shutil.copy2(src, dst)
-                    break
+            # Copy from local script_dir/models if running from an extracted archive
+            local_cache = script_dir / "models"
+            if local_cache.is_dir() and local_cache.resolve() != models_dir.resolve():
+                self.log_signal.emit(f"📦 ローカルモデル ({local_cache}) を確認中...")
+                for m in [
+                    "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17",
+                    "silero_vad.onnx",
+                    "mojicast-m2m100-ct2",
+                    "mojicast-fugumt-ja-en-ct2",
+                    "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
+                    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+                ]:
+                    src = local_cache / m
+                    dst = models_dir / m
+                    if src.exists() and not dst.exists():
+                        self.log_signal.emit(f"  -> コピー: {m}")
+                        if src.is_dir():
+                            shutil.copytree(src, dst)
+                        else:
+                            shutil.copy2(src, dst)
 
-            # Parakeet TDT v3 (High-accuracy English & European 25-lang ASR: en, fr, de, es)
+            # 5-1. Silero VAD (Required)
+            vad_file = models_dir / "silero_vad.onnx"
+            if not vad_file.is_file():
+                self.log_signal.emit("⬇️ Silero VAD 音声区間検出モデルをダウンロード中...")
+                _download_url(
+                    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
+                    vad_file,
+                )
+                self.log_signal.emit("✓ Silero VAD 配備完了")
+
+            # 5-2. ReazonSpeech INT8 Zipformer (Required)
+            rz_dir = models_dir / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17"
+            if not (rz_dir.is_dir() and (rz_dir / "tokens.txt").is_file()):
+                self.log_signal.emit("⬇️ ReazonSpeech 日本語ASRモデル (INT8) をダウンロード中...")
+                rz_tar = models_dir / "reazonspeech.tar.bz2"
+                _download_url(
+                    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17.tar.bz2",
+                    rz_tar,
+                )
+                _safe_extract_tar(rz_tar, models_dir)
+                rz_tar.unlink(missing_ok=True)
+                self.log_signal.emit("✓ ReazonSpeech 配備完了")
+
+            self.progress_signal.emit(68)
+
+            # 5-3. M2M-100 & FuguMT Translation Models (Required)
+            m2m_dir = models_dir / "mojicast-m2m100-ct2"
+            m2m_dir.mkdir(parents=True, exist_ok=True)
+            for fname in ["model.bin", "config.json", "shared_vocabulary.json", "sentencepiece.model"]:
+                dst_f = m2m_dir / fname
+                if not dst_f.is_file() or dst_f.stat().st_size == 0:
+                    self.log_signal.emit(f"⬇️ 多言語翻訳モデル M2M-100 ({fname}) をダウンロード中...")
+                    _download_url(f"https://huggingface.co/ishiki-emo/mojicast-m2m100-ct2/resolve/main/{fname}", dst_f)
+
+            fugu_dir = models_dir / "mojicast-fugumt-ja-en-ct2"
+            fugu_dir.mkdir(parents=True, exist_ok=True)
+            for fname in ["model.bin", "config.json", "shared_vocabulary.json", "source.spm", "target.spm"]:
+                dst_f = fugu_dir / fname
+                if not dst_f.is_file() or dst_f.stat().st_size == 0:
+                    self.log_signal.emit(f"⬇️ 日英翻訳モデル FuguMT ({fname}) をダウンロード中...")
+                    _download_url(f"https://huggingface.co/ishiki-emo/mojicast-fugumt-ja-en-ct2/resolve/main/{fname}", dst_f)
+
+            self.progress_signal.emit(78)
+
+            # 5-4. Parakeet TDT v3 (English & European ASR)
             if self.with_parakeet:
                 p_dir_v3 = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
-                p_dir_v2 = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
-                if not p_dir_v3.exists() and not p_dir_v2.exists():
-                    self.log_signal.emit("⚡ Parakeet TDT v3 欧州25言語・英語特化ASRモデル (約480MB) をダウンロード中...")
+                if not (p_dir_v3.is_dir() and (p_dir_v3 / "tokens.txt").is_file()):
+                    self.log_signal.emit("⬇️ Parakeet TDT v3 英語・欧州言語ASRモデルをダウンロード中...")
                     p_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
                     tar_path = models_dir / "parakeet.tar.bz2"
                     try:
-                        urllib.request.urlretrieve(p_url, tar_path)
-                        with tarfile.open(tar_path, "r:bz2") as tar:
-                            tar.extractall(models_dir)
+                        _download_url(p_url, tar_path)
+                        _safe_extract_tar(tar_path, models_dir)
                         tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ Parakeet TDT v3 配備完了！")
+                        self.log_signal.emit("✓ Parakeet TDT v3 配備完了")
                     except Exception as e:
-                        self.log_signal.emit(f"⚠️ Parakeet ダウンロード失敗 (スキップします): {e}")
+                        self.log_signal.emit(f"⚠️ Parakeet ダウンロード失敗: {e}")
 
-            # SenseVoice Small (Multilingual ASR: zh, ko, ja, en, yue)
+            # 5-5. SenseVoice Small (Chinese & Korean ASR)
             if self.with_sense_voice:
                 sv_dir = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-                if not sv_dir.exists():
-                    self.log_signal.emit("🚀 SenseVoice Small アジア圏多言語ASRモデル (約240MB) をダウンロード中...")
+                if not (sv_dir.is_dir() and (sv_dir / "tokens.txt").is_file()):
+                    self.log_signal.emit("⬇️ SenseVoice Small 中国語・韓国語ASRモデルをダウンロード中...")
                     sv_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
                     tar_path = models_dir / "sense-voice.tar.bz2"
                     try:
-                        urllib.request.urlretrieve(sv_url, tar_path)
-                        with tarfile.open(tar_path, "r:bz2") as tar:
-                            tar.extractall(models_dir)
+                        _download_url(sv_url, tar_path)
+                        _safe_extract_tar(tar_path, models_dir)
                         tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ SenseVoice Small 配備完了！")
+                        self.log_signal.emit("✓ SenseVoice Small 配備完了")
                     except Exception as e:
-                        self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗 (スキップします): {e}")
+                        self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗: {e}")
 
-            self.progress_signal.emit(85)
+            self.progress_signal.emit(90)
 
             # 6. Create Desktop Launcher
             desktop = get_desktop_dir()
-            self.log_signal.emit(f"🖥️ デスクトップランチャーを作成中... ({desktop})")
+            self.log_signal.emit(f"🖥️ デスクトップショートカットを作成中... ({desktop})")
             if desktop.exists():
                 if platform.system() == "Darwin":
                     shortcut = desktop / "Hayamimi Polyglot.command"
-                    shortcut.write_text(f'#!/usr/bin/env bash\ncd "{self.target_dir}"\n./start.sh\n')
+                    shortcut.write_text(f'#!/usr/bin/env bash\ncd "{self.target_dir}"\n./start.sh\n', encoding="utf-8")
                     shortcut.chmod(0o755)
                     self.log_signal.emit(f"✓ macOS ランチャー作成完了: {shortcut}")
                 elif platform.system() == "Windows":
                     shortcut_path = desktop / "Hayamimi Polyglot.lnk"
                     target_bat = (self.target_dir / "start.bat").resolve()
                     ps_cmd = (
-                        f'$ws = New-Object -ComObject WScript.Shell; '
-                        f'$s = $ws.CreateShortcut(\'{shortcut_path}\'); '
-                        f'$s.TargetPath = \'{target_bat}\'; '
-                        f'$s.WorkingDirectory = \'{self.target_dir.resolve()}\'; '
-                        f'$s.Description = \'Hayamimi Polyglot - リアルタイム多言語同時並行通訳\'; '
-                        f'$s.Save()'
+                        f"$ws = New-Object -ComObject WScript.Shell; "
+                        f"$s = $ws.CreateShortcut('{shortcut_path}'); "
+                        f"$s.TargetPath = '{target_bat}'; "
+                        f"$s.WorkingDirectory = '{self.target_dir.resolve()}'; "
+                        f"$s.Description = 'Hayamimi Polyglot - リアルタイム多言語字幕・翻訳ツール'; "
+                        f"$s.Save()"
                     )
                     try:
                         subprocess.run(
                             ["powershell", "-NoProfile", "-Command", ps_cmd],
-                            check=True, text=True, encoding="utf-8", errors="replace",
-                            creationflags=0x08000000 if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+                            check=True,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            creationflags=0x08000000 if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
                         )
                         self.log_signal.emit(f"✓ Windows ショートカット作成完了: {shortcut_path}")
                     except Exception as ex:
                         self.log_signal.emit(f"⚠️ ショートカット作成エラー: {ex}")
-            else:
-                self.log_signal.emit(f"⚠️ デスクトップフォルダが見つかりません: {desktop}")
 
             self.progress_signal.emit(100)
             self.log_signal.emit("=========================================")
-            self.log_signal.emit("🎉 セットアップがすべて正常に完了しました！")
+            self.log_signal.emit("🎉 セットアップが正常に完了しました。")
             self.log_signal.emit("=========================================")
             self.finished_signal.emit(True, "")
 
@@ -392,14 +516,14 @@ class InstallWorker(QThread):
 
 
 # ------------------------------------------------------------------------------
-# 3. Modern Dark Theme GUI Window
+# 3. Dark Theme GUI Window
 # ------------------------------------------------------------------------------
 class InstallerWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Hayamimi Polyglot - セットアップ ＆ 更新")
-        self.resize(640, 780)
-        self.setMinimumSize(580, 680)
+        self.resize(640, 740)
+        self.setMinimumSize(580, 640)
         self.setup_ui()
         self.apply_theme()
         self.update_path_status()
@@ -411,18 +535,17 @@ class InstallerWindow(QMainWindow):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        # Header
         header_layout = QVBoxLayout()
         header_title = QLabel("🎙️🌐 Hayamimi Polyglot")
         header_title.setObjectName("headerTitle")
-        header_sub = QLabel("リアルタイム多言語同時並行通訳システム (完全ローカル・録音ゼロ)")
+        header_sub = QLabel("リアルタイム多言語字幕・翻訳ツール (ローカル実行・音声保存なし)")
         header_sub.setObjectName("headerSub")
         header_layout.addWidget(header_title)
         header_layout.addWidget(header_sub)
         layout.addLayout(header_layout)
 
         # 1. Install Location Group
-        group_path = QGroupBox("インストール先フォルダ")
+        group_path = QGroupBox("インストール先フォルダ（アンインストール時はこのフォルダを削除するだけです）")
         group_path_layout = QVBoxLayout(group_path)
         group_path_layout.setContentsMargins(12, 10, 12, 12)
 
@@ -431,28 +554,28 @@ class InstallerWindow(QMainWindow):
         self.txt_path.textChanged.connect(self.update_path_status)
         btn_browse = QPushButton("参照...")
         btn_browse.setObjectName("btnBrowse")
-        btn_browse.setCursor(QCursor(Qt.PointingHandCursor))
+        btn_browse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_browse.clicked.connect(self.browse_folder)
 
         path_input_layout.addWidget(self.txt_path)
         path_input_layout.addWidget(btn_browse)
         group_path_layout.addLayout(path_input_layout)
 
-        self.lbl_path_notice = QLabel("💡 クラウド同期を避けたローカル推奨パスを自動設定しました")
+        self.lbl_path_notice = QLabel("💡 クラウド同期（OneDrive / iCloud）を避けたローカルフォルダを自動選択しました")
         self.lbl_path_notice.setObjectName("lblPathNotice")
         group_path_layout.addWidget(self.lbl_path_notice)
         layout.addWidget(group_path)
 
         # 2. Models & Environment Group
-        group_models = QGroupBox("ダウンロードする AI モデル構成 & 環境設定")
+        group_models = QGroupBox("導入する AI モデル構成 & 環境設定")
         group_models_layout = QVBoxLayout(group_models)
         group_models_layout.setContentsMargins(12, 10, 12, 12)
         group_models_layout.setSpacing(6)
 
-        self.chk_clean_venv = QCheckBox("🔄 Python 3.14 仮想環境をクリーン再構築する (推奨: 古い残骸を排除)")
+        self.chk_clean_venv = QCheckBox("🔄 Python 3.14 仮想環境をクリーン再構築する (推奨)")
         self.chk_clean_venv.setChecked(True)
         self.chk_clean_venv.setObjectName("chkClean")
-        lbl_clean_sub = QLabel("  • uv ローカルキャッシュを活用するため、再DLゼロ・約1〜2秒で健全な環境を復元")
+        lbl_clean_sub = QLabel("  • uv のローカルキャッシュを利用して迅速に仮想環境を整えます")
         lbl_clean_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_clean_venv)
         group_models_layout.addWidget(lbl_clean_sub)
@@ -460,34 +583,26 @@ class InstallerWindow(QMainWindow):
         self.chk_base = QCheckBox("📦 基本モデル構成 (必須・約 800MB)")
         self.chk_base.setChecked(True)
         self.chk_base.setEnabled(False)
-        lbl_base_sub = QLabel("  • 日本語 ASR (ReazonSpeech Zipformer) + VAD (Silero)\n  • 100言語相互翻訳 (M2M-100 INT8) + 高速日英 (FuguMT)")
+        lbl_base_sub = QLabel("  • 日本語 ASR (ReazonSpeech Zipformer) + 音声区間検出 (Silero VAD)\n  • 多言語翻訳 (M2M-100 INT8) + 日英翻訳 (FuguMT)")
         lbl_base_sub.setObjectName("lblSubDisabled")
         group_models_layout.addWidget(self.chk_base)
         group_models_layout.addWidget(lbl_base_sub)
 
-        self.chk_parakeet = QCheckBox("⚡ 高精度 英語・欧州25言語 ASR (Parakeet TDT v3: 約 480MB)")
+        self.chk_parakeet = QCheckBox("⚡ 英語・欧州言語 ASR (Parakeet TDT v3: 約 640MB)")
         self.chk_parakeet.setChecked(True)
         self.chk_parakeet.setEnabled(True)
-        lbl_parakeet_sub = QLabel("  • NVIDIA NeMo SOTAモデル。英・仏・独・西ネイティブ会話をCPU INT8で高速認識")
+        lbl_parakeet_sub = QLabel("  • 英語・フランス語・ドイツ語・スペイン語の音声認識モデル (CPU INT8)")
         lbl_parakeet_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_parakeet)
         group_models_layout.addWidget(lbl_parakeet_sub)
 
-        self.chk_sensevoice = QCheckBox("🚀 アジア圏多言語 ASR (SenseVoice Small: 約 240MB)")
+        self.chk_sensevoice = QCheckBox("🚀 中国語・韓国語 ASR (SenseVoice Small: 約 240MB)")
         self.chk_sensevoice.setChecked(True)
         self.chk_sensevoice.setEnabled(True)
-        lbl_sv_sub = QLabel("  • 中国語・韓国語・広東語ネイティブ対応。漢字・ITN数字正規化")
+        lbl_sv_sub = QLabel("  • 中国語・韓国語に対応する音声認識モデル (CPU INT8)")
         lbl_sv_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_sensevoice)
         group_models_layout.addWidget(lbl_sv_sub)
-
-        self.chk_nllb = QCheckBox("🌐 高精度 アジア・多言語翻訳 (NLLB-200 600M: +約 600MB)")
-        self.chk_nllb.setChecked(False)
-        self.chk_nllb.setEnabled(False)
-        lbl_nllb_sub = QLabel("  • 中国語・韓国語などの長文翻訳精度やビジネス敬語を向上 (準備中)")
-        lbl_nllb_sub.setObjectName("lblSubDisabled")
-        group_models_layout.addWidget(self.chk_nllb)
-        group_models_layout.addWidget(lbl_nllb_sub)
 
         layout.addWidget(group_models)
 
@@ -517,7 +632,7 @@ class InstallerWindow(QMainWindow):
 
         self.btn_install = QPushButton("🚀 セットアップを開始する")
         self.btn_install.setObjectName("btnInstall")
-        self.btn_install.setCursor(QCursor(Qt.PointingHandCursor))
+        self.btn_install.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_install.clicked.connect(self.start_installation)
 
         bottom_layout.addWidget(self.chk_launch)
@@ -642,17 +757,17 @@ class InstallerWindow(QMainWindow):
     def update_path_status(self):
         path = Path(self.txt_path.text().strip())
         if (path / "main.py").exists():
-            self.btn_install.setText("🔄 アップデート / 設定適用を開始")
-            self.lbl_path_notice.setText("✨ 既存の Hayamimi Polyglot 環境を検出しました（アップデート / 追加DLモード）")
+            self.btn_install.setText("🔄 アップデート / モデル確認を開始")
+            self.lbl_path_notice.setText("✨ 既存の Hayamimi Polyglot 環境を検出しました（更新・モデル確認モード）")
             self.lbl_path_notice.setStyleSheet("color: #38BDF8;")
         else:
             self.btn_install.setText("🚀 セットアップを開始する")
-            self.lbl_path_notice.setText("💡 クラウド同期（OneDrive/iCloud等）を避けたローカル推奨パスを自動設定しました")
+            self.lbl_path_notice.setText("💡 クラウド同期（OneDrive / iCloud）を避けたローカルフォルダを自動設定しました")
             self.lbl_path_notice.setStyleSheet("color: #34D399;")
 
     def browse_folder(self):
         initial = self.txt_path.text() if Path(self.txt_path.text()).exists() else str(Path.home())
-        selected = QFileDialog.getExistingDirectory(self, "Hayamimi Polyglot のインストール先フォルダを選択", initial)
+        selected = QFileDialog.getExistingDirectory(self, "インストール先フォルダを選択", initial)
         if selected:
             self.txt_path.setText(selected)
 
@@ -669,7 +784,6 @@ class InstallerWindow(QMainWindow):
         self.txt_path.setEnabled(False)
         self.chk_clean_venv.setEnabled(False)
         self.chk_parakeet.setEnabled(False)
-        self.chk_nllb.setEnabled(False)
         self.chk_sensevoice.setEnabled(False)
 
         self.worker = InstallWorker(
@@ -677,8 +791,7 @@ class InstallerWindow(QMainWindow):
             clean_venv=self.chk_clean_venv.isChecked(),
             with_parakeet=self.chk_parakeet.isChecked(),
             with_sense_voice=self.chk_sensevoice.isChecked(),
-            with_zipformer_vi=False,
-            should_launch=self.chk_launch.isChecked()
+            should_launch=self.chk_launch.isChecked(),
         )
         self.worker.log_signal.connect(self.append_log)
         self.worker.progress_signal.connect(self.prg_bar.setValue)
@@ -717,4 +830,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

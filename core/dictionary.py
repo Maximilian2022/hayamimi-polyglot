@@ -1,15 +1,20 @@
 """
 Hayamimi For Business - Business Dictionary & Instant Hotwords Engine.
 Uses SudachiPy (Apache-2.0) for morphological analysis, phonetic matching and entity extraction.
-Zero network communication during runtime. 100% offline & Zero Telemetry.
+Runs offline with no external network requests during runtime.
 """
 
 from __future__ import annotations
 
-import os
 import re
+import threading
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Pattern, Set, Tuple
+
+
+_ASCII_RULE_RE = re.compile(r"^[A-Za-z0-9/&\-\._]+$")
+_KATAKANA_ONLY_RE = re.compile(r"^[\u30a0-\u30ffー]+$")
+_JP_CHAR_RE = re.compile(r"[\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff]")
 
 
 def _levenshtein(s1: str, s2: str) -> int:
@@ -34,13 +39,15 @@ COMMON_STOPWORDS: Set[str] = {
     "計画", "予定", "状況", "確認", "相談", "質問", "回答", "作業", "業務", "担当",
     "対応", "検討", "報告", "連絡", "提出", "実施", "決定", "開始", "終了", "変更",
     "参加", "共有", "作成", "登録", "設定", "表示", "利用", "使用", "管理", "運用",
+    "開発", "資料", "進捗", "課題", "目標", "対策", "方針", "内容", "詳細", "全体",
     "これ", "それ", "あれ", "どれ", "ここ", "そこ", "あそこ", "どこ", "だれ", "なに",
+    "テスト", "システム", "データ", "モデル", "サービス", "プロジェクト", "ミーティング",
 }
 
 
 class BusinessDictionary:
     """
-    High-performance business dictionary and phonetic post-processing engine.
+    Business dictionary and phonetic post-processing engine.
     Applies exact, boundary, regex, and SudachiPy morphological phonetic corrections.
     """
 
@@ -53,43 +60,55 @@ class BusinessDictionary:
 
         self.static_terms: Set[str] = set()
         self.static_replacements: Dict[str, str] = {}
+        self._compiled_static_regex: List[Tuple[Pattern[str], str]] = []
+        self._literal_static_replacements: List[Tuple[str, str]] = []
+
         self.instant_hotwords: List[str] = []
         self.instant_hotword_readings: Dict[str, str] = {}
+        self._instant_ascii_patterns: List[Tuple[Pattern[str], str]] = []
 
         self._tokenizer = None
         self._split_mode = None
+        self._lock = threading.Lock()
 
         self._load_static_dicts()
         self._load_replacement_rules()
         self._load_extension_dicts()
+        self._compile_replacement_patterns()
 
     def _get_tokenizer(self):
-        """Lazy initialization of SudachiPy tokenizer."""
+        """Thread-safe lazy initialization of SudachiPy tokenizer."""
         if self._tokenizer is None:
-            try:
-                from sudachipy import dictionary, SplitMode
-                # Use recommended tokenizer() method
-                dict_instance = dictionary.Dictionary(dict="full")
-                self._tokenizer = getattr(dict_instance, "tokenizer", None)
+            with self._lock:
                 if self._tokenizer is None:
-                    self._tokenizer = dict_instance.create()
-                else:
-                    self._tokenizer = self._tokenizer()
-                self._split_mode = SplitMode.C
-            except Exception:
-                try:
-                    from sudachipy import dictionary, SplitMode
-                    dict_instance = dictionary.Dictionary()
-                    self._tokenizer = getattr(dict_instance, "tokenizer", None)
-                    if self._tokenizer is None:
-                        self._tokenizer = dict_instance.create()
-                    else:
-                        self._tokenizer = self._tokenizer()
-                    self._split_mode = SplitMode.C
-                except Exception:
-                    self._tokenizer = None
-                    self._split_mode = None
+                    try:
+                        from sudachipy import dictionary, SplitMode
+                        dict_instance = dictionary.Dictionary(dict="full")
+                        tok_fn = getattr(dict_instance, "tokenizer", None)
+                        self._tokenizer = tok_fn() if tok_fn is not None else dict_instance.create()
+                        self._split_mode = SplitMode.C
+                    except Exception:
+                        try:
+                            from sudachipy import dictionary, SplitMode
+                            dict_instance = dictionary.Dictionary()
+                            tok_fn = getattr(dict_instance, "tokenizer", None)
+                            self._tokenizer = tok_fn() if tok_fn is not None else dict_instance.create()
+                            self._split_mode = SplitMode.C
+                        except Exception:
+                            self._tokenizer = None
+                            self._split_mode = None
         return self._tokenizer
+
+    def warmup(self) -> None:
+        """Pre-initialize the morphological analyzer to avoid first-utterance latency."""
+        tok = self._get_tokenizer()
+        if tok is not None:
+            with self._lock:
+                try:
+                    from sudachipy import SplitMode
+                    tok.tokenize("初期化", self._split_mode or SplitMode.C)
+                except Exception:
+                    pass
 
     def _load_static_dicts(self) -> None:
         """Load business terms and listed company names."""
@@ -113,7 +132,7 @@ class BusinessDictionary:
                         parts = line.split("\t", 1)
                         misheard = parts[0].strip()
                         correct = parts[1].strip()
-                        if misheard and correct:
+                        if misheard and correct and misheard != correct:
                             self.static_replacements[misheard] = correct
 
     def _load_extension_dicts(self) -> None:
@@ -127,9 +146,30 @@ class BusinessDictionary:
                     if line and not line.startswith("#"):
                         if "\t" in line:
                             parts = line.split("\t", 1)
-                            self.static_replacements[parts[0].strip()] = parts[1].strip()
+                            k, v = parts[0].strip(), parts[1].strip()
+                            if k and v and k != v:
+                                self.static_replacements[k] = v
                         else:
                             self.static_terms.add(line)
+
+    def _compile_replacement_patterns(self) -> None:
+        """Pre-compile boundary-aware patterns so partial matches inside words never occur."""
+        self._compiled_static_regex.clear()
+        self._literal_static_replacements.clear()
+
+        # Sort longer keys first to prevent shorter patterns from shadowing compound rules
+        sorted_items = sorted(self.static_replacements.items(), key=lambda kv: len(kv[0]), reverse=True)
+        for misheard, correct in sorted_items:
+            if _ASCII_RULE_RE.match(misheard):
+                # Enforce alphanumeric boundaries (e.g. 'nda' will not match inside 'agenda')
+                pat = re.compile(rf"(?<![A-Za-z0-9]){re.escape(misheard)}(?![A-Za-z0-9])")
+                self._compiled_static_regex.append((pat, correct))
+            elif _KATAKANA_ONLY_RE.match(misheard) and len(misheard) <= 4:
+                # Short katakana terms require katakana boundaries (e.g. 'サース' won't match 'リソース')
+                pat = re.compile(rf"(?<![\u30a0-\u30ffー]){re.escape(misheard)}(?![\u30a0-\u30ffー])")
+                self._compiled_static_regex.append((pat, correct))
+            else:
+                self._literal_static_replacements.append((misheard, correct))
 
     def extract_keywords_from_text(self, text: str, max_keywords: int = 50) -> List[str]:
         """
@@ -147,7 +187,9 @@ class BusinessDictionary:
         ascii_terms = re.findall(r"\b[A-Za-z0-9][A-Za-z0-9_\-\.]{1,20}\b", text)
         for term in ascii_terms:
             t = term.strip("-_.")
-            if len(t) >= 2 and t.lower() not in {"the", "and", "for", "with", "this", "that", "from"}:
+            if len(t) >= 2 and not t.isdigit() and t.lower() not in {
+                "the", "and", "for", "with", "this", "that", "from", "have", "will", "are", "was", "not"
+            }:
                 if t not in seen:
                     seen.add(t)
                     extracted.append(t)
@@ -155,22 +197,26 @@ class BusinessDictionary:
         # 2. Morphological analysis with SudachiPy if available
         if tokenizer is not None:
             from sudachipy import SplitMode
-            morphemes = tokenizer.tokenize(text, self._split_mode or SplitMode.C)
+            with self._lock:
+                morphemes = tokenizer.tokenize(text, self._split_mode or SplitMode.C)
             for m in morphemes:
                 pos = m.part_of_speech()
                 surface = m.surface().strip()
-                if len(surface) < 2:
+                if len(surface) < 2 or surface in COMMON_STOPWORDS or surface.isdigit():
                     continue
                 if pos[0] == "名詞":
-                    if (pos[1] in ("固有名詞", "普通名詞", "一般")) and pos[2] not in ("助数詞", "代名詞"):
-                        if surface not in seen and not surface.isdigit():
+                    # Only extract proper nouns or Katakana technical terms to avoid overriding common kanji words
+                    is_proper = pos[1] == "固有名詞"
+                    is_katakana_term = bool(_KATAKANA_ONLY_RE.match(surface))
+                    if (is_proper or is_katakana_term) and pos[2] not in ("助数詞", "代名詞"):
+                        if surface not in seen:
                             seen.add(surface)
                             extracted.append(surface)
         else:
-            # Fallback simple Japanese regex: Kanji/Katakana compounds
-            jp_terms = re.findall(r"[\u4e00-\u9fff\u30a0-\u30ff]{2,15}", text)
+            # Fallback simple Japanese regex: Katakana compounds
+            jp_terms = re.findall(r"[\u30a0-\u30ffー]{2,15}", text)
             for term in jp_terms:
-                if term not in seen:
+                if term not in seen and term not in COMMON_STOPWORDS:
                     seen.add(term)
                     extracted.append(term)
 
@@ -179,31 +225,40 @@ class BusinessDictionary:
     def set_instant_hotwords(self, keywords: List[str]) -> None:
         """
         Set dynamic hotwords for the current meeting and precompute their Katakana readings
-        using SudachiPy for fast real-time phonetic post-processing.
+        and compiled regex patterns for real-time post-processing.
         """
-        self.instant_hotwords = [k.strip() for k in keywords if k.strip()]
+        cleaned = [k.strip() for k in keywords if k.strip() and k.strip() not in COMMON_STOPWORDS]
+        self.instant_hotwords = cleaned
         self.instant_hotword_readings.clear()
+        self._instant_ascii_patterns.clear()
+
+        for hw in self.instant_hotwords:
+            if re.match(r"^[A-Za-z0-9_\-\.]+$", hw):
+                pat = re.compile(rf"(?<![A-Za-z0-9]){re.escape(hw)}(?![A-Za-z0-9])", re.IGNORECASE)
+                self._instant_ascii_patterns.append((pat, hw))
 
         tokenizer = self._get_tokenizer()
         if tokenizer is not None:
             from sudachipy import SplitMode
-            for hw in self.instant_hotwords:
-                try:
-                    morphemes = tokenizer.tokenize(hw, self._split_mode or SplitMode.C)
-                    reading = "".join([m.reading_form() for m in morphemes])
-                    if reading:
-                        self.instant_hotword_readings[hw] = reading
-                except Exception:
-                    pass
+            with self._lock:
+                for hw in self.instant_hotwords:
+                    try:
+                        morphemes = tokenizer.tokenize(hw, self._split_mode or SplitMode.C)
+                        reading = "".join([m.reading_form() for m in morphemes])
+                        if reading and len(reading) >= 2:
+                            self.instant_hotword_readings[hw] = reading
+                    except Exception:
+                        pass
 
     def clear_instant_hotwords(self) -> None:
-        """Clear dynamic hotwords and cached readings from memory (Zero Telemetry & Hygiene)."""
+        """Clear dynamic hotwords and cached readings from memory."""
         self.instant_hotwords.clear()
         self.instant_hotword_readings.clear()
+        self._instant_ascii_patterns.clear()
 
     def generate_hotwords_file(self, output_path: Path, score: float = 1.5) -> Path:
         """
-        Generate sherpa-onnx compatible hotwords file (kept for standard models).
+        Generate sherpa-onnx compatible hotwords file.
         Format: word :score
         """
         all_words: Set[str] = set(self.instant_hotwords)
@@ -220,7 +275,7 @@ class BusinessDictionary:
 
     def _find_phonetic_match(self, surface: str, reading: str, pos: Tuple[str, ...]) -> Optional[str]:
         """
-        Find closest phonetic match among instant hotwords for misrecognized words.
+        Find closest phonetic match among instant hotwords for misrecognized Katakana words.
         Example: Speech recognition outputs 'テッチリ', matches hotword 'テック'.
         """
         if not reading or len(reading) < 2:
@@ -228,6 +283,9 @@ class BusinessDictionary:
         if surface in COMMON_STOPWORDS:
             return None
         if pos[0] != "名詞":
+            return None
+        # Only apply fuzzy phonetic replacement to Katakana tokens so established Kanji words (e.g. 開発) are never corrupted
+        if not _KATAKANA_ONLY_RE.match(surface):
             return None
 
         best_match: Optional[str] = None
@@ -252,7 +310,6 @@ class BusinessDictionary:
 
             # Rule 1: Short hotwords (length <= 3) e.g., テック (3) vs テッチリ (4)
             if hw_len <= 3:
-                # Distance must be <= 2 and must share prefix of at least 2 chars
                 if dist <= 2 and common_prefix_len >= 2:
                     score = dist / max_len
                     if score < best_score:
@@ -271,10 +328,10 @@ class BusinessDictionary:
 
     def apply_replacements(self, text: str) -> str:
         """
-        Apply comprehensive post-decoding corrections:
-        1. Fast exact & boundary replacements from term_replacements.txt
-        2. English acronym case normalization (e.g. kpi -> KPI, saas -> SaaS)
-        3. SudachiPy morphological phonetic matching (e.g. テッチリ -> テック based on agenda hotwords)
+        Apply post-decoding corrections:
+        1. Pre-compiled boundary & literal replacements from term_replacements.txt
+        2. English acronym case normalization from Instant Hotwords
+        3. SudachiPy morphological phonetic matching (for texts containing Japanese characters)
         """
         if not text:
             return ""
@@ -282,53 +339,57 @@ class BusinessDictionary:
         res = text
 
         # ----------------------------------------------------------------------
-        # Phase 1: Fast Static Term Replacements (e.g. ケイピーアイ -> KPI, オンプレ -> オンプレミス)
+        # Phase 1: Static Term Replacements (Literal + Boundary-aware Regex)
         # ----------------------------------------------------------------------
-        for misheard, correct in self.static_replacements.items():
+        for misheard, correct in self._literal_static_replacements:
             if misheard in res:
                 res = res.replace(misheard, correct)
+
+        for pat, correct in self._compiled_static_regex:
+            res = pat.sub(correct, res)
 
         # ----------------------------------------------------------------------
         # Phase 2: Acronym Case Normalization (Word boundaries)
         # ----------------------------------------------------------------------
-        for hw in self.instant_hotwords:
-            if re.match(r"^[A-Za-z0-9_\-\.]+$", hw):
-                pattern = re.compile(rf"\b{re.escape(hw)}\b", re.IGNORECASE)
-                res = pattern.sub(hw, res)
+        for pat, hw in self._instant_ascii_patterns:
+            res = pat.sub(hw, res)
 
         # ----------------------------------------------------------------------
-        # Phase 3: SudachiPy Morphological & Phonetic Correction
+        # Phase 3: SudachiPy Morphological & Phonetic Correction (Japanese only)
         # ----------------------------------------------------------------------
+        if not _JP_CHAR_RE.search(res):
+            return res
+
         tokenizer = self._get_tokenizer()
         if tokenizer is not None and (self.instant_hotword_readings or self.static_terms):
             from sudachipy import SplitMode
             try:
-                morphemes = tokenizer.tokenize(res, self._split_mode or SplitMode.C)
-                corrected_tokens: List[str] = []
+                with self._lock:
+                    morphemes = tokenizer.tokenize(res, self._split_mode or SplitMode.C)
+                    corrected_tokens: List[str] = []
 
-                for m in morphemes:
-                    surf = m.surface()
-                    pos = m.part_of_speech()
-                    reading = m.reading_form()
-                    norm = m.normalized_form()
+                    for m in morphemes:
+                        surf = m.surface()
+                        pos = m.part_of_speech()
+                        reading = m.reading_form()
+                        norm = m.normalized_form()
 
-                    # 1. Sudachi built-in normalization for Latin acronyms (e.g., kpi -> KPI, dx -> DX)
-                    if surf.lower() in ("kpi", "dx", "saas", "arr", "mrr", "poc", "api", "aws", "gcp"):
-                        corrected_tokens.append(norm)
-                        continue
-
-                    # 2. Check phonetic match against Instant Hotwords
-                    if self.instant_hotword_readings:
-                        phonetic_replacement = self._find_phonetic_match(surf, reading, pos)
-                        if phonetic_replacement:
-                            corrected_tokens.append(phonetic_replacement)
+                        # 1. Sudachi built-in normalization for standalone Latin acronyms
+                        if surf.lower() in ("kpi", "dx", "saas", "arr", "mrr", "poc", "api", "aws", "gcp"):
+                            corrected_tokens.append(norm)
                             continue
 
-                    corrected_tokens.append(surf)
+                        # 2. Check phonetic match against Instant Hotwords
+                        if self.instant_hotword_readings:
+                            phonetic_replacement = self._find_phonetic_match(surf, reading, pos)
+                            if phonetic_replacement:
+                                corrected_tokens.append(phonetic_replacement)
+                                continue
+
+                        corrected_tokens.append(surf)
 
                 res = "".join(corrected_tokens)
             except Exception:
-                # If morphological processing encounters an issue, safely return Phase 1/2 result
                 pass
 
         return res
@@ -339,34 +400,34 @@ class BusinessDictionary:
     def get_extension_catalog(self) -> List[Dict[str, str]]:
         """
         Return the catalog of available online-optional extension dictionaries.
-        These are clean, open-data, commercial-safe domain dictionaries.
+        These are open-data, commercial-safe domain dictionaries.
         """
         return [
             {
                 "id": "medical_pharma",
                 "name": "医療・製薬・ライフサイエンス専門辞書",
-                "description": "厚生労働省MEDIS標準病名マスター・万病辞書由来。疾患名、医薬品一般名、治験用語を網羅。",
+                "description": "厚生労働省MEDIS標準病名マスター・万病辞書由来。疾患名、医薬品一般名、治験用語を収録。",
                 "filename": "medical_pharma.txt",
                 "installed": (self.extensions_dir / "medical_pharma.txt").is_file(),
             },
             {
                 "id": "legal_compliance",
                 "name": "法務・知財・行政・コンプライアンス辞書",
-                "description": "e-Gov法令用語、特許・商標、官公庁行政用語、企業コンプライアンス用語を網羅。",
+                "description": "e-Gov法令用語、特許・商標、官公庁行政用語、企業コンプライアンス用語を収録。",
                 "filename": "legal_compliance.txt",
                 "installed": (self.extensions_dir / "legal_compliance.txt").is_file(),
             },
             {
                 "id": "edinet_full",
-                "name": "東証全上場企業 EDINET 完全版辞書（約4,000社）",
-                "description": "金融庁EDINET開示のプライム・スタンダード・グロース全上場企業の正式名称・略称。",
+                "name": "東証全上場企業 EDINET 辞書（約4,000社）",
+                "description": "金融庁EDINET開示のプライム・スタンダード・グロース上場企業の正式名称・略称。",
                 "filename": "edinet_full.txt",
                 "installed": (self.extensions_dir / "edinet_full.txt").is_file(),
             },
             {
                 "id": "science_engineering",
-                "name": "先端科学技術・工学用語辞書",
-                "description": "情報通信、半導体、機械工学、材料科学、先端バイオ工学の学術・技術用語。",
+                "name": "科学技術・工学用語辞書",
+                "description": "情報通信、半導体、機械工学、材料科学、バイオ工学の学術・技術用語。",
                 "filename": "science_engineering.txt",
                 "installed": (self.extensions_dir / "science_engineering.txt").is_file(),
             },

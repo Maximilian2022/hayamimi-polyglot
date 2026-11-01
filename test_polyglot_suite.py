@@ -1,13 +1,14 @@
 """
 Hayamimi Polyglot - Comprehensive Verification Suite.
 Validates:
-  1. Security: 127.0.0.1 binding, zero audio files on disk, clean logging.
-  2. Business Dictionary & Instant Hotwords extraction.
-  3. 8-Language ASR Audio Transcription (ja, en, zh, ko, fr, de, es, vi).
-  4. Lazy Loading & Dynamic Memory Management (Models on-demand activation).
-  5. 8-Language Local Multilingual Translation (M2M-100 & FuguMT).
-  6. Multi-script Language Identification (LID).
-  7. Audio process enumeration.
+  1. Business Dictionary & Instant Hotwords extraction + Word-boundary safety.
+  2. Silero VAD (Voice Activity Detection + Hysteresis).
+  3. 4-Stage Broadcast Audio DSP Chain (Noise Gate, Mid-EQ, De-Esser, AGC Compressor).
+  4. 7-Language ASR Audio Transcription (ja, en, zh, ko, fr, de, es).
+  5. Lazy Loading & Dynamic Memory Management (On-demand model activation).
+  6. 7-Language Local Multilingual Translation (M2M-100 & FuguMT with EOS).
+  7. Multi-script Language Identification (LID).
+  8. Security & System Constraints (127.0.0.1 binding, token auth, history clear, zero disk audio).
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ import numpy as np
 import soundfile as sf
 
 from core.asr_engine import BusinessASREngine
+from core.audio.dsp import AudioDSPChain
 from core.audio.win_loopback import list_audio_processes
 from core.dictionary import BusinessDictionary
 from core.translator import LocalTranslator
@@ -41,7 +43,6 @@ def find_models_dir() -> Path:
     candidates = [
         Path(__file__).resolve().parent / "models",
         Path(__file__).resolve().parent.parent / "models",
-        Path(r"D:\hayamimi4b\models"),
         Path("models"),
     ]
     for c in candidates:
@@ -51,7 +52,7 @@ def find_models_dir() -> Path:
 
 
 def test_dictionary_and_hotwords():
-    print("\n[TEST 1/7] Testing Business Dictionary & Instant Hotwords...")
+    print("\n[TEST 1/8] Testing Business Dictionary, Hotwords & Word-Boundary Safety...")
     bdict = BusinessDictionary()
     assert len(bdict.static_terms) > 50, f"Expected >50 static terms, got {len(bdict.static_terms)}"
 
@@ -66,6 +67,8 @@ def test_dictionary_and_hotwords():
 
     assert any("Project-Titan" in k or "Titan" in k for k in keywords), "Project acronym should be extracted"
     assert any("KPI" in k or "ARR" in k for k in keywords), "Business acronyms should be extracted"
+    # Common general nouns like '本日' or '確認' must NOT be extracted as hotwords
+    assert "本日" not in keywords and "確認" not in keywords, f"Common nouns should not be extracted: {keywords}"
 
     # Test static term replacements & acronym normalization
     raw_misheard = "今回のオンプレ環境でケイピーアイを測定しdxを推進する"
@@ -74,21 +77,34 @@ def test_dictionary_and_hotwords():
     assert "KPI" in norm_result, f"Expected 'KPI', got: {norm_result}"
     assert "DX" in norm_result, f"Expected 'DX', got: {norm_result}"
 
+    # Test word-boundary protection (prevent substring corruption like agenda -> ageNDA or リソース -> リSaaS)
+    en_sentence = "Today's agenda includes customer support and resource planning."
+    en_norm = bdict.apply_replacements(en_sentence)
+    assert "agenda" in en_norm and "ageNDA" not in en_norm, f"Substring corruption in English: {en_norm}"
+
+    ja_sentence = "開発リソースとキャッシュフローを確認する"
+    ja_norm = bdict.apply_replacements(ja_sentence)
+    assert "リソース" in ja_norm and "リSaaS" not in ja_norm, f"Substring corruption in Katakana: {ja_norm}"
+
     # Test SudachiPy phonetic correction (e.g. テッチリ -> テック from hotwords)
     bdict.set_instant_hotwords(["テック", "Kubernetes"])
     asr_fuzzy_text = "今週のテッチリカンファレンスでコミットする"
     corrected = bdict.apply_replacements(asr_fuzzy_text)
     assert "テック" in corrected, f"Expected phonetic match 'テック', got: {corrected}"
 
+    # Clear hotwords hygiene check
+    bdict.clear_instant_hotwords()
+    assert len(bdict.instant_hotwords) == 0, "Instant hotwords should be cleared"
+
     # Test extension catalog
     catalog = bdict.get_extension_catalog()
     assert len(catalog) >= 4, f"Expected at least 4 extension dicts in catalog, got {len(catalog)}"
 
-    print("  [PASS] Business Dictionary & Hotwords verified (Static replacements + SudachiPy Phonetic + Catalog).")
+    print("  [PASS] Business Dictionary, boundary safety & SudachiPy phonetic matching verified.")
 
 
 def test_vad():
-    print("\n[TEST 2/7] Testing Silero VAD (Voice Activity Detection)...")
+    print("\n[TEST 2/8] Testing Silero VAD (Voice Activity Detection & Hysteresis)...")
     models_dir = find_models_dir()
     vad = SileroVAD(models_dir=models_dir)
 
@@ -99,12 +115,48 @@ def test_vad():
 
     chunk_512 = data[:512].astype(np.float32)
     is_speech = vad.is_speech(chunk_512)
-    print("  -> VAD speech detection status:", is_speech)
+    print("  -> VAD speech detection status on first frame:", is_speech)
+
+    # Verify pure silence returns False
+    vad.reset()
+    silence = np.zeros(512, dtype=np.float32)
+    assert vad.is_speech(silence) is False, "Silence must not trigger VAD"
     print("  [PASS] Silero VAD verified.")
 
 
+def test_audio_dsp_chain():
+    print("\n[TEST 3/8] Testing 4-Stage Broadcast Audio DSP Chain...")
+    dsp = AudioDSPChain(sample_rate=16000)
+    sr = 16000
+    t = np.linspace(0, 1.0, sr, endpoint=False, dtype=np.float32)
+
+    # 1. Quiet speech-like signal (300Hz + 1800Hz) with sibilance burst (5800Hz)
+    quiet_speech = 0.03 * np.sin(2 * np.pi * 300 * t) + 0.03 * np.sin(2 * np.pi * 1800 * t)
+    processed = dsp.process(quiet_speech)
+    assert processed.shape == quiet_speech.shape
+    assert processed.dtype == np.float32
+    assert not np.any(np.isnan(processed)) and not np.any(np.isinf(processed))
+
+    # AGC should boost quiet active speech level
+    rms_in = float(np.sqrt(np.mean(quiet_speech ** 2)))
+    rms_out = float(np.sqrt(np.mean(processed ** 2)))
+    print(f"  -> Quiet speech RMS boosted: {rms_in:.4f} -> {rms_out:.4f}")
+    assert rms_out > rms_in * 1.3, f"Expected AGC boost on quiet signal ({rms_in:.4f} -> {rms_out:.4f})"
+    assert float(np.max(np.abs(processed))) <= 0.96, "Limiter must cap peak amplitude"
+
+    # 2. Noise gate should attenuate sub-threshold floor noise (-60dBFS)
+    floor_noise = (np.random.RandomState(42).randn(sr) * 0.0008).astype(np.float32)
+    gated = dsp.process(floor_noise)
+    rms_noise_in = float(np.sqrt(np.mean(floor_noise ** 2)))
+    rms_noise_out = float(np.sqrt(np.mean(gated ** 2)))
+    print(f"  -> Floor noise RMS attenuated: {rms_noise_in:.5f} -> {rms_noise_out:.5f}")
+    assert rms_noise_out < rms_noise_in, "Noise gate should attenuate quiet floor noise"
+
+    print("  [PASS] 4-Stage Audio DSP Chain (Gate, Mid-EQ, De-Esser, AGC) verified.")
+
+
 def test_7_languages_asr():
-    print("\n[TEST 3/7] Testing All 7 Core Languages ASR Audio Decoding...")
+    print("\n[TEST 4/8] Testing All 7 Core Languages ASR Audio Decoding...")
     models_dir = find_models_dir()
     asr = BusinessASREngine(
         models_dir=models_dir,
@@ -132,11 +184,11 @@ def test_7_languages_asr():
         print(f"  -> [{lang.upper()}] ({expected_model}): {text}")
         assert len(text) > 0, f"ASR transcription failed for {lang}"
 
-    print("  [PASS] All 7 core languages ASR verified with 100% accuracy.")
+    print("  [PASS] All 7 core languages ASR verified.")
 
 
 def test_lazy_loading_and_memory():
-    print("\n[TEST 4/7] Testing ASR Lazy Loading & Dynamic Memory Management...")
+    print("\n[TEST 5/8] Testing ASR Lazy Loading & Dynamic Memory Management...")
     models_dir = find_models_dir()
     asr = BusinessASREngine(models_dir=models_dir, initial_languages=["ja", "en"])
 
@@ -162,15 +214,20 @@ def test_lazy_loading_and_memory():
 
 
 def test_7_languages_translation():
-    print("\n[TEST 5/7] Testing 7 Languages Multilingual Translation (M2M-100 & FuguMT)...")
+    print("\n[TEST 6/8] Testing 7 Languages Multilingual Translation (M2M-100 & FuguMT)...")
     models_dir = find_models_dir()
     translator = LocalTranslator(models_dir=models_dir)
 
-    # 1. Specialized FuguMT ja -> en
+    # 1. Specialized FuguMT ja -> en (check EOS fix: no repetition hallucination on short phrases)
     ja_text = "本日の四半期決算の進捗とKPIを確認します。"
     en_result = translator.translate_ja_to_en(ja_text)
     print("  -> [ja -> en] (FuguMT):", en_result)
     assert len(en_result) > 0
+
+    short_ja = "システムの設定を変更します。"
+    short_en = translator.translate_ja_to_en(short_ja)
+    print("  -> [ja -> en short] (FuguMT):", short_en)
+    assert len(short_en) > 0 and len(short_en.split()) < 20, f"Unexpected repetition in FuguMT output: {short_en}"
 
     # 2. Universal M2M-100 to Japanese
     test_cases = [
@@ -193,15 +250,18 @@ def test_7_languages_translation():
     print("  -> [ja -> zh] (M2M-100):", zh_res)
     print("  -> [ja -> ko] (M2M-100):", ko_res)
 
+    translator.shutdown()
     print("  [PASS] 7-language bidirectional translation verified.")
 
 
 def test_language_identification():
-    print("\n[TEST 6/7] Testing Multilingual Language Identification (_detect_src_lang)...")
+    print("\n[TEST 7/8] Testing Multilingual Language Identification (_detect_src_lang)...")
     from main import SessionWorker
 
-    class DummyVAD: pass
+    class DummyVAD:
+        def reset(self): pass
     class DummyASR:
+        last_detected_lang = ""
         def set_active_languages(self, langs): pass
     class DummyTrans: pass
 
@@ -228,31 +288,37 @@ def test_language_identification():
         print(f"  -> [{track}] '{text}' => detected '{actual}' (expected '{expected}') - {desc}")
         assert actual == expected, f"Failed LID for '{text}': got {actual}, expected {expected}"
 
-    print("  [PASS] Language identification 100% verified.")
+    print("  [PASS] Language identification verified.")
 
 
 def test_security_and_system():
-    print("\n[TEST 7/7] Testing Security & System Constraints...")
+    print("\n[TEST 8/8] Testing Security & System Constraints...")
     # 1. Zero disk audio recordings
     root = Path(__file__).resolve().parent
     audio_files = list(root.glob("**/*.wav")) + list(root.glob("**/*.pcm")) + list(root.glob("**/*.mp3"))
     audio_files = [f for f in audio_files if "models" not in str(f) and ".venv" not in str(f)]
     assert len(audio_files) == 0, f"Violation: Found audio files recorded on disk: {audio_files}"
 
-    # 2. Localhost binding
+    # 2. Localhost binding, token URL & history clearing
     import ui.web_server as ws
     server = ws.BusinessWebServer()
     assert server.host == "127.0.0.1", f"Violation: Server host must be 127.0.0.1, got {server.host}"
-    assert server.port == 8844, f"Violation: Server port should be 8844, got {server.port}"
+    view_url = server.get_view_url()
+    assert "http://127.0.0.1:" in view_url and "?token=" in view_url, f"Expected token-protected view URL, got {view_url}"
+
+    ws.broadcast_event("subtitle", {"id": "101", "track": "self", "text": "テスト発言", "translations": {}})
+    assert len(ws._transcript_history) > 0, "History should contain published transcript"
+    server.clear_history()
+    assert len(ws._transcript_history) == 0, "History must be empty after clear_history()"
 
     # 3. Audio process enumeration
     procs = list_audio_processes()
     assert len(procs) >= 0
 
     print("  -> Zero audio files found on disk.")
-    print("  -> Web server strictly bound to 127.0.0.1:8844.")
+    print(f"  -> Web server bound to 127.0.0.1 with one-time token URL and verified clear_history().")
     print(f"  -> Audio process enumeration operational ({len(procs)} processes).")
-    print("  [PASS] Security & System constraints 100% verified.")
+    print("  [PASS] Security & System constraints verified.")
 
 
 if __name__ == "__main__":
@@ -261,11 +327,12 @@ if __name__ == "__main__":
     print("=======================================================")
     test_dictionary_and_hotwords()
     test_vad()
+    test_audio_dsp_chain()
     test_7_languages_asr()
     test_lazy_loading_and_memory()
     test_7_languages_translation()
     test_language_identification()
     test_security_and_system()
     print("\n=======================================================")
-    print("  🎉 ALL 7 TESTS PASSED SUCCESSFULLY! (100% CLEAN)")
+    print("  🎉 ALL 8 TESTS PASSED SUCCESSFULLY!")
     print("=======================================================")

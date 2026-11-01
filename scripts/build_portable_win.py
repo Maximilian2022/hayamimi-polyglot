@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-Hayamimi Polyglot - Windows Standalone Portable Builder & Verifier
+Hayamimi Polyglot - Windows Standalone Portable Builder & Verifier (Python 3.14)
 Usable both locally and inside GitHub Actions (windows-latest).
 """
+
+from __future__ import annotations
 
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -19,32 +23,87 @@ if hasattr(sys.stderr, "reconfigure"):
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build_win_portable"
 PKG_DIR = BUILD_DIR / "hayamimi-polyglot"
-VERSION = (ROOT / "version.txt").read_text(encoding="utf-8").strip() if (ROOT / "version.txt").is_file() else "1.0.0"
+VERSION = (ROOT / "version.txt").read_text(encoding="utf-8").strip() if (ROOT / "version.txt").is_file() else "1.0.1"
 OUTPUT_ZIP = ROOT / f"hayamimi-polyglot-v{VERSION}-windows-portable.zip"
 
-def ensure_standalone_python() -> Path:
-    """Ensure standalone CPython 3.12 is available via uv."""
-    print("📦 Locating standalone CPython 3.12 via uv...")
-    # Trigger uv python install 3.12 to ensure it is in uv python cache
-    subprocess.call(["uv", "python", "install", "3.12"])
-    
-    appdata = os.environ.get("APPDATA")
-    userprofile = os.environ.get("USERPROFILE")
-    candidates = []
-    if appdata:
-        candidates.append(Path(appdata) / "uv" / "python")
-    if userprofile:
-        candidates.append(Path(userprofile) / "AppData" / "Roaming" / "uv" / "python")
+# Official Python Software Foundation NuGet package (Digitally signed by Python Software Foundation)
+PYTHON_NUGET_URL = "https://api.nuget.org/v3-flatcontainer/python/3.14.10/python.3.14.10.nupkg"
 
-    for uv_dir in candidates:
-        if uv_dir.exists():
-            for entry in uv_dir.iterdir():
-                if entry.name.startswith("cpython-3.12") and (entry / "python.exe").exists():
-                    print(f"  [OK] Found standalone CPython: {entry}")
-                    return entry
-    raise RuntimeError("Standalone CPython 3.12 could not be found or installed!")
 
-def copy_vc_redist_dlls(dst_dir: Path):
+def download_and_extract_python(dst_python: Path) -> None:
+    """Download and extract official PSF-signed Python 3.14.10 Windows x86_64 runtime."""
+    py_nupkg = BUILD_DIR / "python-3.14.10.zip"
+    print(f"⬇️ Downloading official PSF-signed Python 3.14.10: {PYTHON_NUGET_URL} ...")
+    req = urllib.request.Request(PYTHON_NUGET_URL, headers={"User-Agent": "Hayamimi-CI-Builder"})
+    with urllib.request.urlopen(req, timeout=60) as resp, open(py_nupkg, "wb") as out:
+        shutil.copyfileobj(resp, out)
+
+    print("📦 Extracting official Python 3.14 runtime...")
+    extract_temp = BUILD_DIR / "_py_extract"
+    if extract_temp.exists():
+        shutil.rmtree(extract_temp)
+    extract_temp.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(py_nupkg, "r") as zipf:
+        zipf.extractall(extract_temp)
+
+    tools_dir = extract_temp / "tools"
+    if not tools_dir.exists():
+        raise RuntimeError("Expected 'tools' folder inside Python NuGet package.")
+
+    if dst_python.exists():
+        shutil.rmtree(dst_python)
+    shutil.move(str(tools_dir), str(dst_python))
+
+    shutil.rmtree(extract_temp, ignore_errors=True)
+    py_nupkg.unlink(missing_ok=True)
+
+
+def clean_unnecessary_binaries(dst_python: Path) -> None:
+    """
+    Remove unused, architecture-mismatched, or test-only unsigned binaries.
+    Helps prevent false-positive Smart App Control (SAC) blocks and reduces package size.
+    """
+    print("🧹 Cleaning unnecessary unsigned binaries and test modules...")
+    removed_count = 0
+
+    # 1. Remove pip executable stubs in python/ (unsigned CLI launcher stubs)
+    for stub_name in ["t32.exe", "t64.exe", "t64-arm.exe", "w32.exe", "w64.exe", "w64-arm.exe"]:
+        stub_path = dst_python / stub_name
+        if stub_path.exists():
+            stub_path.unlink()
+            removed_count += 1
+
+    site_packages = dst_python / "Lib" / "site-packages"
+    if not site_packages.exists():
+        return
+
+    # 2. In _sounddevice_data: keep only 64-bit non-ASIO DLL (libportaudio64bit.dll)
+    sd_binaries = site_packages / "_sounddevice_data" / "portaudio-binaries"
+    if sd_binaries.exists():
+        for dll_file in sd_binaries.glob("*.dll"):
+            if dll_file.name != "libportaudio64bit.dll":
+                dll_file.unlink()
+                removed_count += 1
+                print(f"     - Removed unused audio DLL: {dll_file.name}")
+
+    # 3. In numpy: remove test-only C extensions (.pyd) and test suites
+    for test_pyd in site_packages.glob("numpy/**/_*tests*.pyd"):
+        try:
+            test_pyd.unlink()
+            removed_count += 1
+            print(f"     - Removed numpy test binary: {test_pyd.name}")
+        except Exception:
+            pass
+
+    for test_dir in site_packages.glob("numpy/**/tests"):
+        if test_dir.is_dir():
+            shutil.rmtree(test_dir, ignore_errors=True)
+
+    print(f"  [OK] Cleaned {removed_count} unnecessary binary/test items.")
+
+
+def copy_vc_redist_dlls(dst_dir: Path) -> None:
     """Bundle Visual C++ Redistributable DLLs into python/ directory."""
     system32 = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32"
     vc_dll_patterns = [
@@ -55,7 +114,7 @@ def copy_vc_redist_dlls(dst_dir: Path):
         "msvcp140_codecvt_ids.dll",
         "vcomp140.dll",
         "vcruntime140.dll",
-        "vcruntime140_1.dll"
+        "vcruntime140_1.dll",
     ]
     print("  -> Bundling VC++ Redistributable DLLs into python/ ...")
     copied = 0
@@ -67,9 +126,10 @@ def copy_vc_redist_dlls(dst_dir: Path):
             print(f"     + {dll_name}")
     print(f"  [OK] Bundled {copied} VC++ DLLs.")
 
-def main():
+
+def main() -> None:
     print("=" * 60)
-    print("🚀 Building Windows Standalone Portable Package")
+    print("🚀 Building Windows Standalone Portable Package (Python 3.14)")
     print("=" * 60)
 
     if BUILD_DIR.exists():
@@ -77,11 +137,9 @@ def main():
 
     PKG_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Standalone Python Runtime
-    src_python = ensure_standalone_python()
+    # 1. Standalone Python 3.14 Runtime (stripped)
     dst_python = PKG_DIR / "python"
-    print(f"📦 Copying Standalone Python to {dst_python}...")
-    shutil.copytree(src_python, dst_python)
+    download_and_extract_python(dst_python)
 
     ext_managed = dst_python / "Lib" / "EXTERNALLY-MANAGED"
     if ext_managed.exists():
@@ -91,7 +149,7 @@ def main():
     copy_vc_redist_dlls(dst_python)
 
     # 3. Cleanly install requirements
-    print("📦 Installing requirements into portable Python environment...")
+    print("📦 Installing requirements into portable Python 3.14 environment...")
     py_exe = dst_python / "python.exe"
     req_file = ROOT / "requirements.txt"
 
@@ -99,26 +157,50 @@ def main():
     env["UV_SYSTEM_CERTS"] = "true"
     env["PIP_USE_FEATURE"] = "truststore"
 
-    subprocess.check_call([
-        "uv", "pip", "install",
-        "--python", str(py_exe),
-        "--break-system-packages",
-        "-r", str(req_file)
-    ], env=env)
+    subprocess.check_call(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(py_exe),
+            "--break-system-packages",
+            "-r",
+            str(req_file),
+        ],
+        env=env,
+    )
 
-    # Prune dev-only artifacts
-    tcl_dir = dst_python / "tcl"
-    if tcl_dir.exists():
-        shutil.rmtree(tcl_dir, ignore_errors=True)
-    inc_dir = dst_python / "include"
-    if inc_dir.exists():
-        shutil.rmtree(inc_dir, ignore_errors=True)
+    # Prune non-runtime directories to keep ZIP well under 2GB
+    for unused_dir in [
+        dst_python / "tcl",
+        dst_python / "include",
+        dst_python / "libs",
+        dst_python / "Lib" / "test",
+        dst_python / "Lib" / "tkinter",
+        dst_python / "Lib" / "idlelib",
+        dst_python / "Lib" / "turtledemo",
+    ]:
+        if unused_dir.exists():
+            shutil.rmtree(unused_dir, ignore_errors=True)
 
-    # 4. Copy Application Source & Assets
+    # Remove unused architecture binaries and test .pyd files (Smart App Control false-positive prevention)
+    clean_unnecessary_binaries(dst_python)
+
+    # 4. Copy Application Source & Assets (exclude local config.json)
     items = [
-        "core", "ui", "dicts", "main.py", "start.bat",
-        "config.default.json", "config.json", "requirements.txt",
-        "Third_Party_Notices.md", "LICENSE", "README.md", "version.txt"
+        "core",
+        "ui",
+        "dicts",
+        "main.py",
+        "start.bat",
+        "config.default.json",
+        "requirements.txt",
+        ".python-version",
+        "Third_Party_Notices.md",
+        "LICENSE",
+        "README.md",
+        "version.txt",
     ]
     for item in items:
         src = ROOT / item
@@ -131,7 +213,10 @@ def main():
         else:
             shutil.copy2(src, dst)
 
-    # 5. Copy Models (INT8 Only)
+    # Remove any temporary session_hotwords.txt if present
+    (PKG_DIR / "dicts" / "session_hotwords.txt").unlink(missing_ok=True)
+
+    # 5. Copy Models (INT8 Only, excluding test_wavs to save space)
     src_models = ROOT / "models"
     dst_models = PKG_DIR / "models"
     dst_models.mkdir(parents=True, exist_ok=True)
@@ -139,12 +224,23 @@ def main():
 
     # FuguMT & M2M-100
     if (src_models / "mojicast-fugumt-ja-en-ct2").exists():
-        shutil.copytree(src_models / "mojicast-fugumt-ja-en-ct2", dst_models / "mojicast-fugumt-ja-en-ct2")
+        shutil.copytree(
+            src_models / "mojicast-fugumt-ja-en-ct2",
+            dst_models / "mojicast-fugumt-ja-en-ct2",
+        )
     if (src_models / "mojicast-m2m100-ct2").exists():
-        shutil.copytree(src_models / "mojicast-m2m100-ct2", dst_models / "mojicast-m2m100-ct2")
-    # Parakeet v3 INT8
-    if (src_models / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8").exists():
-        shutil.copytree(src_models / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8", dst_models / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8")
+        shutil.copytree(
+            src_models / "mojicast-m2m100-ct2",
+            dst_models / "mojicast-m2m100-ct2",
+        )
+    # Parakeet v3 INT8 (only runtime files, skip test_wavs)
+    pk_src = src_models / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+    if pk_src.exists():
+        pk_dst = dst_models / pk_src.name
+        pk_dst.mkdir(parents=True, exist_ok=True)
+        for f in pk_src.iterdir():
+            if f.is_file() and (f.suffix in (".onnx", ".txt", ".md") or f.name == "LICENSE"):
+                shutil.copy2(f, pk_dst / f.name)
     # SenseVoice INT8 only
     sv_src = src_models / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
     if sv_src.exists():
@@ -158,7 +254,7 @@ def main():
     if rz_src.exists():
         rz_dst = dst_models / rz_src.name
         rz_dst.mkdir(parents=True, exist_ok=True)
-        for f in ["tokens.txt", "README.md"]:
+        for f in ["tokens.txt", "README.md", "LICENSE"]:
             if (rz_src / f).exists():
                 shutil.copy2(rz_src / f, rz_dst / f)
         for f in rz_src.glob("*.int8.onnx"):
@@ -184,7 +280,7 @@ def main():
     print(f"\n📦 Compressing into {OUTPUT_ZIP.name}...")
     with zipfile.ZipFile(OUTPUT_ZIP, "w", zipfile.ZIP_DEFLATED) as zipf:
         file_count = 0
-        for root, dirs, files in os.walk(BUILD_DIR):
+        for root, _dirs, files in os.walk(BUILD_DIR):
             for file in files:
                 full_path = Path(root) / file
                 arc_name = full_path.relative_to(BUILD_DIR)
@@ -196,7 +292,7 @@ def main():
     size_mb = OUTPUT_ZIP.stat().st_size / (1024 * 1024)
     print(f"\n🎉 Package generated: {OUTPUT_ZIP} ({size_mb:.2f} MB)")
 
-    # 7. RIGOROUS SMOKE TEST (Extract to temporary isolated folder & verify execution)
+    # 7. Headless Smoke Test
     print("\n🧪 Running Headless Smoke Test on newly generated Portable Package...")
     test_extract_dir = ROOT / "build_test_win_extract"
     if test_extract_dir.exists():
@@ -208,9 +304,12 @@ def main():
 
     isolated_py = test_extract_dir / "hayamimi-polyglot" / "python" / "python.exe"
     smoke_test_cmd = [
-        str(isolated_py), "-c",
+        str(isolated_py),
+        "-c",
         (
             "import os, sys; "
+            "print('  [OK] Python version:', sys.version); "
+            "assert sys.version_info[:2] == (3, 14), f'Expected Python 3.14, got {sys.version}'; "
             "os.environ['QT_QPA_PLATFORM'] = 'offscreen'; "
             "from PySide6 import QtCore, QtWidgets, QtGui; "
             "print('  [OK] QtCore and QtWidgets loaded!'); "
@@ -226,19 +325,19 @@ def main():
             "asr = BusinessASREngine(models_dir=m_dir); "
             "tr = LocalTranslator(models_dir=m_dir); "
             "w = SessionWorker(asr_engine=asr, vad_self=v_s, vad_remote=v_r, translator=tr); "
+            "w.shutdown(); tr.shutdown(); "
             "print('  [OK] SessionWorker initialized without error!'); "
             "print('[SUCCESS] ALL PORTABLE SMOKE TESTS PASSED!')"
-        )
+        ),
     ]
     test_env = os.environ.copy()
     test_env["QT_QPA_PLATFORM"] = "offscreen"
     subprocess.check_call(smoke_test_cmd, env=test_env, cwd=str(test_extract_dir / "hayamimi-polyglot"))
 
-    # Clean up test directories
     shutil.rmtree(test_extract_dir)
     shutil.rmtree(BUILD_DIR)
     print("[OK] All build artifacts cleaned. Build & Test Complete!")
 
+
 if __name__ == "__main__":
     main()
-

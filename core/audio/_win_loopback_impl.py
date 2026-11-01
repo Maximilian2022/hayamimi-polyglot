@@ -46,8 +46,9 @@ from typing import Iterator
 import numpy as np
 
 
-@dataclass
+@dataclass(frozen=True)
 class AudioProcess:
+    """A process currently associated with a Windows audio session."""
     pid: int
     name: str
     executable: str = ""
@@ -937,10 +938,19 @@ class ApplicationLoopbackCapture:
         # not implement IAudioClient::GetMixFormat (it returns E_NOTIMPL).
         # Microsoft's official ApplicationLoopback sample therefore uses
         # a fixed 16-bit / 44.1 kHz / stereo PCM capture format.
+        hns_buffer_duration = 2_000_000
+        stream_flags = (
+            AUDCLNT_STREAMFLAGS_LOOPBACK
+            | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
+            | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
+            | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
+        )
+
+        # Prefer direct 16kHz mono via WASAPI kernel resampler (AUTOCONVERTPCM)
         capture_format = WAVEFORMATEX()
         capture_format.wFormatTag = 1  # WAVE_FORMAT_PCM
-        capture_format.nChannels = 2
-        capture_format.nSamplesPerSec = 44100
+        capture_format.nChannels = 1 if self.mono else 2
+        capture_format.nSamplesPerSec = 16000
         capture_format.wBitsPerSample = 16
         capture_format.nBlockAlign = (
             capture_format.nChannels * capture_format.wBitsPerSample // 8
@@ -949,28 +959,6 @@ class ApplicationLoopbackCapture:
             capture_format.nSamplesPerSec * capture_format.nBlockAlign
         )
         capture_format.cbSize = 0
-
-        self._format = AudioFormat(
-            sample_rate=44100,
-            channels=2,
-            bits_per_sample=16,
-            block_align=int(capture_format.nBlockAlign),
-            is_float=False,
-        )
-
-        # 200 ms buffer.
-        hns_buffer_duration = 2_000_000
-
-        # The official Microsoft Application Loopback sample uses
-        # shared-mode WASAPI and loopback capture. Autoconvert lets the
-        # audio engine convert the rendered application audio to the
-        # requested PCM format.
-        stream_flags = (
-            AUDCLNT_STREAMFLAGS_LOOPBACK
-            | AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-            | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM
-            | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY
-        )
 
         hr = self._client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
@@ -981,10 +969,47 @@ class ApplicationLoopbackCapture:
             None,
         )
 
-        _check_hr(
-            hr,
-            "IAudioClient.Initialize",
-        )
+        if not _hresult_failed(int(hr)):
+            self._format = AudioFormat(
+                sample_rate=16000,
+                channels=int(capture_format.nChannels),
+                bits_per_sample=16,
+                block_align=int(capture_format.nBlockAlign),
+                is_float=False,
+            )
+        else:
+            # Fallback to 44.1 kHz stereo PCM
+            capture_format.nChannels = 2
+            capture_format.nSamplesPerSec = 44100
+            capture_format.wBitsPerSample = 16
+            capture_format.nBlockAlign = (
+                capture_format.nChannels * capture_format.wBitsPerSample // 8
+            )
+            capture_format.nAvgBytesPerSec = (
+                capture_format.nSamplesPerSec * capture_format.nBlockAlign
+            )
+            capture_format.cbSize = 0
+
+            self._format = AudioFormat(
+                sample_rate=44100,
+                channels=2,
+                bits_per_sample=16,
+                block_align=int(capture_format.nBlockAlign),
+                is_float=False,
+            )
+
+            hr = self._client.Initialize(
+                AUDCLNT_SHAREMODE_SHARED,
+                stream_flags,
+                hns_buffer_duration,
+                0,
+                byref(capture_format),
+                None,
+            )
+            _check_hr(
+                hr,
+                "IAudioClient.Initialize",
+            )
 
         buffer_size = c_ulong()
 
@@ -1333,15 +1358,6 @@ class ApplicationLoopbackCapture:
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class AudioProcess:
-    """
-    A process currently associated with a Windows audio session.
-    """
-
-    pid: int
-    name: str
-    executable: str = ""
 
 
 def list_audio_processes() -> list[AudioProcess]:
@@ -1462,16 +1478,22 @@ def choose_audio_process() -> AudioProcess:
 
 
 def resample_linear(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    """Linear-interpolation resample to dst_rate."""
-    if src_rate == dst_rate:
+    """Anti-aliased linear-interpolation resample to dst_rate."""
+    if src_rate == dst_rate or len(samples) == 0:
         return samples
     duration = len(samples) / src_rate
     dst_n = int(round(duration * dst_rate))
     if dst_n <= 0:
         return np.zeros(0, dtype=np.float32)
-    src_x = np.arange(len(samples)) / src_rate
-    dst_x = np.arange(dst_n) / dst_rate
-    return np.interp(dst_x, src_x, samples).astype(np.float32)
+    x = samples
+    if src_rate > dst_rate:
+        ratio = max(2, int(round(src_rate / dst_rate)))
+        if len(x) > ratio:
+            kernel = np.ones(ratio, dtype=np.float32) / float(ratio)
+            x = np.convolve(x, kernel, mode="same")
+    src_x = np.linspace(0.0, 1.0, len(x), endpoint=False)
+    dst_x = np.linspace(0.0, 1.0, dst_n, endpoint=False)
+    return np.interp(dst_x, src_x, x).astype(np.float32)
 
 
 def app_chunks(

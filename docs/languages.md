@@ -1,73 +1,71 @@
 # Hayamimi Polyglot - 言語・モデル相関仕様書 (`docs/languages.md`)
 
-本書は、**Hayamimi Polyglot** における「音声の聞き取り（ASR: Speech-to-Text）」および「多言語機械翻訳（NMT: Text-to-Text）」の担当 AI モデル、推論ランタイム、言語カバー範囲、およびリソース管理設計をまとめた技術仕様書です。
+本書は、**Hayamimi Polyglot** における「音声の聞き取り（ASR: Speech-to-Text）」、「音声前処理（DSP）」、および「多言語機械翻訳（NMT: Text-to-Text）」の担当 AI モデル、推論ランタイム、言語カバー範囲、およびリソース管理設計をまとめた技術仕様書です。
 
 ---
 
 ## 1. 主要 7 言語 マッピング一覧（UI 提供言語）
 
 UI（コントロールパネル）で選択可能な主要 7 言語における、**音声認識（入力）** と **翻訳（出力）** の担当モデル一覧です。  
-※本プロジェクトは商用利用安全性を 100% 徹底するため、非商用ライセンス（CC-BY-NC 等）のモデルを完全に排除しています（ベトナム語 Zipformer の除外等）。
+※本プロジェクトでは商用利用時のライセンス安全性を確保するため、非商用ライセンス（CC-BY-NC 等）のモデルを除外しています。
 
 | 言語 | 国旗 | 音声聞き取り (ASR) 担当モデル | ASR 推論ランタイム | 翻訳 (NMT) 担当モデル | NMT 推論ランタイム |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| **日本語** (`ja`) | 🇯🇵 | **ReazonSpeech Zipformer** (辞書・Hotwords特化) | sherpa-onnx (CPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
-| **英語** (`en`) | 🇺🇸 | **Parakeet TDT 0.6B** (SOTA特化) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
-| **中国語** (`zh`) | 🇨🇳 | **SenseVoice Small** (ネイティブ) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
-| **韓国語** (`ko`) | 🇰🇷 | **SenseVoice Small** (ネイティブ) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
-| **フランス語** (`fr`) | 🇫🇷 | **Parakeet TDT v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
-| **ドイツ語** (`de`) | 🇩🇪 | **Parakeet TDT v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
-| **スペイン語** (`es`) | 🇪🇸 | **Parakeet TDT v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (万能相互翻訳) | CTranslate2 INT8 |
+| **日本語** (`ja`) | 🇯🇵 | **ReazonSpeech Zipformer** (+ SudachiPy 後処理) | sherpa-onnx (CPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
+| **英語** (`en`) | 🇺🇸 | **Parakeet TDT 0.6B v3** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **中国語** (`zh`) | 🇨🇳 | **SenseVoice Small** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **韓国語** (`ko`) | 🇰🇷 | **SenseVoice Small** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **フランス語** (`fr`) | 🇫🇷 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **ドイツ語** (`de`) | 🇩🇪 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **スペイン語** (`es`) | 🇪🇸 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
 
 ---
 
-## 2. 音声聞き取り（ASR）モデル詳細
+## 2. 音声前処理（DSP）＆ 音声聞き取り（ASR）モデル詳細
 
-CPU のみで動作し、ノート PC のファンを回さない低負荷（INT8 量子化）モデルを言語特性に合わせて最適分担しています。
+CPU のみで軽快に動作する INT8 量子化モデルを言語特性に合わせて分担しています。また、発話区間が ASR に渡される直前に 4 段のオーディオ DSP チェーンを通過することで、マイク環境や音量差による認識劣化を抑えています。
 
 ```
 [マイク / 会議音声] ──> [Silero VAD (ONNX)]
-                              │ (発声検知・無音時CPU停止)
+                              │ (発話区間検知・ヒステリシス制御)
                               ▼
+                  [4段オーディオ DSP チェーン]
+        (1. ノイズゲート ➔ 2. 中音域EQ ➔ 3. ディエッサー ➔ 4. AGCコンプレッサー)
+                              │
                 ┌─────────────┼─────────────┐
                 ▼                           ▼                             ▼
          【日本語 (ja)】              【英語・欧米圏】              【中・韓・アジア圏】
-      ReazonSpeech Zipformer        Parakeet TDT 0.6B              SenseVoice Small
-     (Hotwords & 辞書固定)       (SOTA英語・欧州25言語)           (中国語・韓国語ネイティブ)
+      ReazonSpeech Zipformer        Parakeet TDT 0.6B v3           SenseVoice Small
+     (+ SudachiPy 辞書後処理)      (英語・欧州25言語対応)          (中国語・韓国語対応)
 ```
 
-### ① ReazonSpeech Zipformer (Reazon Human Interaction Lab) - 【日本語メイン固定】
-- **担当言語**: 日本語 (`ja`) 固定
-- **推論エンジン**: `sherpa-onnx` (`from_transducer`)
+### ① ReazonSpeech Zipformer (Reazon Human Interaction Lab) - 【日本語メイン】
+- **担当言語**: 日本語 (`ja`)
+- **推論エンジン**: `sherpa-onnx` (`from_transducer`, `greedy_search`)
 - **ライセンス**: Apache License 2.0（商用利用可）
-- **サイズ**: 約 250 MB (INT8)
+- **サイズ**: 約 180 MB (INT8)
 - **特徴**:
-  - 日本語のビジネス会議における **メイン固定モデル**。
-  - アジェンダや資料から抽出した社内用語・プロジェクト名・人名をデコード時に動的注入する「**Instant Hotwords**（ホットワードバイアス）」に完全対応。
-  - 金融庁EDINETの全上場企業名や SudachiDict によるビジネス辞書置換が最も相性良く機能。
+  - 日本語のビジネス会議におけるメインモデルとして常駐稼働します。
+  - 発話脱落のない高速な Greedy Search で音声認識を行った後、`SudachiPy`（`SudachiDict-Full`）による形態素解析・音韻（読み）照合を用いた確定後処理エンジンにより、アジェンダから抽出した固有名詞（Instant Hotwords）や上場企業名、ビジネス略語を高精度に補正します。
 
-### ② Parakeet TDT 0.6B (NVIDIA NeMo) - 【英語・欧米圏メイン】
-- **担当言語**:
-  - v2: 英語 (`en`) 特化
-  - v3: 英語 (`en`), フランス語 (`fr`), ドイツ語 (`de`), スペイン語 (`es`) など欧州 25 言語
+### ② Parakeet TDT 0.6B v3 (NVIDIA NeMo) - 【英語・欧米圏メイン】
+- **担当言語**: 英語 (`en`), フランス語 (`fr`), ドイツ語 (`de`), スペイン語 (`es`) など欧州 25 言語（v2 環境では英語特化）
 - **推論エンジン**: `sherpa-onnx` (`from_transducer`, `model_type="nemo_transducer"`)
 - **ライセンス**: Creative Commons Attribution 4.0 International (CC-BY-4.0)（商用利用可）
-- **サイズ**: 約 460〜480 MB (INT8)
-- **処理速度**: 1秒の音声を約80msでデコード
+- **サイズ**: 約 460〜640 MB (INT8)
 - **特徴**:
-  - TDT (Token-and-Duration Transducer) アーキテクチャにより、従来の自己回帰モデル（Whisper等）より圧倒的に少ない推論ステップでデコード。
-  - 英語ネイティブの早口会話、ビジネス略語、スラング、句読点、大文字小文字の再現性が世界最高水準（SOTA）。
-  - **※完全 CPU 動作**: NVIDIA 製アーキテクチャですが、INT8 最適化により GPU/CUDA 不要・Intel Core i5 / AMD Ryzen CPU のみで軽快に動作。
+  - TDT (Token-and-Duration Transducer) アーキテクチャにより、少ない推論ステップで高速にデコードします。
+  - 英語および主要欧州言語の自然な会話、ビジネス用語、句読点、大文字小文字の再現性に優れています。
+  - INT8 量子化により、GPU（CUDA）を必要とせず一般的なノート PC の CPU のみで動作します。
 
 ### ③ SenseVoice Small (Alibaba Tongyi Lab) - 【中国語・韓国語・アジア圏】
 - **担当言語**: 中国語 (`zh`: 普通話・広東語), 韓国語 (`ko`), アジア圏多言語
 - **推論エンジン**: `sherpa-onnx` (`from_sense_voice`)
 - **ライセンス**: FunASR Model Open Source License Agreement v1.1（商用利用許諾・要クレジット表示）
 - **サイズ**: 約 240 MB (INT8)
-- **処理速度**: RTF < 0.05 (1秒の音声を約20msでデコード)
 - **特徴**:
-  - 中国語・韓国語などアジア系言語の音声認識精度が極めて高く、漢字変換や数字正規化（ITN）が美しい。
-  - 音声の言語判定（LID）プローブとしても機能。
+  - 中国語・韓国語などアジア系言語の音声認識と数字正規化（ITN）を担当します。
+  - 多言語会議時の言語判定（LID）プローブとしても機能します。
 
 ---
 
@@ -76,32 +74,31 @@ CPU のみで動作し、ノート PC のファンを回さない低負荷（INT
 入力言語から出力言語へのテキスト変換は、**CTranslate2 (高速 C++ Transformer ランタイム)** 上で INT8 量子化モデルが担当します。
 
 ### ① Meta M2M-100 (418M INT8)
-- **担当言語**: 世界 100 言語の任意のペア（`en -> ja`, `zh -> ja`, `ko -> ja`, `fr -> ja`, `de -> ja`, `es -> ja`, `ja -> zh`, `ja -> ko` 等）
-- **推論エンジン**: `CTranslate2` (CPU INT8)
+- **担当言語**: 100 言語の任意のペア（`en -> ja`, `zh -> ja`, `ko -> ja`, `fr -> ja`, `de -> ja`, `es -> ja`, `ja -> zh`, `ja -> ko` 等）
+- **推論エンジン**: `CTranslate2` (CPU INT8, `beam_size=1`)
 - **ライセンス**: MIT License（商用利用可）
-- **サイズ**: 約 380 MB
+- **サイズ**: 約 480 MB
 - **特徴**:
-  - 100言語の語彙・重みを標準で内包しているため、**追加ダウンロード不要**で全言語間の双方向翻訳が可能。
-  - 1つの発言に対し、選択されている残り全言語（最大4言語）へ並行して即座に同時翻訳（マルチキャスト翻訳）を出力。
+  - 多言語の語彙・重みを内包しており、追加ダウンロードなしで選択言語間の双方向翻訳を行います。
+  - 1つの発言に対し、選択されている残り全言語（最大4言語）へ `translate_batch` により並行翻訳を出力します。
 
 ### ② FuguMT (ja -> en 特化)
 - **担当言語**: 日本語 ➔ 英語 (`ja -> en`) 専用
-- **推論エンジン**: `CTranslate2` (CPU INT8)
+- **推論エンジン**: `CTranslate2` (CPU INT8, `beam_size=1`)
 - **ライセンス**: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)（商用利用可）
-- **サイズ**: 約 190 MB
+- **サイズ**: 約 135 MB
 - **特徴**:
-  - 日英ペアに特化して蒸留・学習されたモデル。
-  - 約 20〜40ms という圧倒的な超高速で、こなれた自然なビジネス英語を生成。
+  - 日英ペアに特化した軽量翻訳モデルで、日本語から英語への翻訳を低遅延で処理します。
 
 ---
 
 ## 4. 遅延ロード（Lazy Loading / オンデマンド起動）設計
 
-Hayamimi Polyglot の基本原則である **「3〜5年前のノートPCのCPUのみで軽快に動作する」** を実現するため、以下のリソース制御を採用しています。
+一般的なビジネスノート PC のメモリと CPU リソースを節約するため、以下のリソース制御を採用しています。
 
-1. **未選択モデルの非活性（メモリ消費ゼロ）**:
-   - ディスク（`models/`）に全モデルが配置されていても、会議の対象言語としてチェックされていない言語のモデル（例: 中国語・韓国語、欧州諸言語）は、**RAM（メモリ）にはロードされません**。
-2. **通常会議時の最小フットプリント**:
-   - 日常的な「日本語 🇯🇵 ＋ 英語 🇺🇸」の会議中は、ReazonSpeech と Parakeet のみがメモリに常駐。SenseVoice は未ロード（RAM 0MB）です。
-3. **オンデマンド即時呼び出し**:
-   - 会議設定で特定の言語（例: 中国語・韓国語）がチェックされた瞬間、バックグラウンドで該当モデルが起動し、使われなくなった言語モデル（例: 欧州言語モデル）は即座にメモリからアンロード（`gc.collect()`）されて RAM を解放します。
+1. **未選択モデルの非活性**:
+   - ディスク（`models/`）に全モデルが配置されていても、会議の対象言語として選択されていない言語のモデル（例: 中国語・韓国語、または欧州言語）は、初期状態では RAM にロードされません。
+2. **単一言語選択時の直接ルーティング**:
+   - 会議設定で 1 言語のみを選択している場合（文字起こし専念モード等）、言語判定用の複数モデルデコードを省略し、対象言語の ASR モデルのみを直接実行して CPU 負荷を抑えます。
+3. **オンデマンド起動とメモリ解放**:
+   - 会議設定で特定の言語がチェックされた際に該当モデルをロードし、チェックが外れたモデルの参照は解放してガベージコレクション（`gc.collect()`）を実行します。

@@ -1,6 +1,6 @@
 """
 Hayamimi For Business - Silero VAD (ONNX).
-Zero external communication. CPU optimized.
+Runs offline with CPU-optimized inference.
 """
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ import onnxruntime as ort
 
 
 class SileroVAD:
-    """Silero VAD ONNX wrapper for real-time speech detection."""
+    """Silero VAD ONNX wrapper for real-time speech detection with hysteresis."""
 
-    def __init__(self, model_path: Path | str | None = None, models_dir: Path | str | None = None, threshold: float = 0.5):
+    def __init__(self, model_path: Path | str | None = None, models_dir: Path | str | None = None, threshold: float = 0.45):
         if model_path is not None:
             mp = Path(model_path)
             if mp.is_dir():
@@ -30,7 +30,6 @@ class SileroVAD:
                     Path(__file__).resolve().parent.parent / "models" / "silero_vad.onnx",
                     Path("models") / "silero_vad.onnx",
                     Path.home() / ".cache" / "hayamimi-polyglot" / "models" / "silero_vad.onnx",
-                    Path("D:/hayamimi4b/models") / "silero_vad.onnx",
                 ]
                 for c in candidates:
                     if c.is_file():
@@ -47,6 +46,8 @@ class SileroVAD:
 
         self.session = ort.InferenceSession(str(model_path), opts, providers=["CPUExecutionProvider"])
         self.threshold = threshold
+        self._neg_threshold = max(0.20, threshold - 0.15)
+        self._triggered = False
 
         # Auto-detect input names (Silero VAD v4 uses 'x', v5 uses 'input', with or without 'sr')
         model_input_names = [inp.name for inp in self.session.get_inputs()]
@@ -57,9 +58,10 @@ class SileroVAD:
     def reset(self):
         self._h = np.zeros((2, 1, 64), dtype=np.float32)
         self._c = np.zeros((2, 1, 64), dtype=np.float32)
+        self._triggered = False
 
     def is_speech(self, chunk_512: np.ndarray, sample_rate: int = 16000) -> bool:
-        """Process a 512-sample float32 chunk (32ms at 16kHz)."""
+        """Process a 512-sample float32 chunk (32ms at 16kHz) using Silero VAD probabilities."""
         if len(chunk_512) != 512:
             return False
 
@@ -80,11 +82,12 @@ class SileroVAD:
             self._c = c
             prob = float(out.flatten()[0])
             if prob >= self.threshold:
+                self._triggered = True
                 return True
-            # Energy fallback guard for voice transients (RMS > 0.03)
+            if self._triggered and prob >= self._neg_threshold:
+                return True
+            self._triggered = False
+            return False
+        except Exception:
             rms = float(np.sqrt(np.mean(chunk_512**2)))
-            return rms > 0.035
-        except Exception as ex:
-            # Fallback to pure energy VAD if model inference fails
-            rms = float(np.sqrt(np.mean(chunk_512**2)))
-            return rms > 0.025
+            return rms > 0.03

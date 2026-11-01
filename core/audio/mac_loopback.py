@@ -1,6 +1,6 @@
 """
-Hayamimi For Business - macOS Audio Capture (ScreenCaptureKit / CoreAudio / BlackHole).
-Zero recording to disk. Pure in-memory streaming.
+Hayamimi Polyglot - macOS Audio Capture (CoreAudio / BlackHole virtual input).
+No recording to disk. Pure in-memory streaming.
 Requirements: macOS 12 Monterey ~ macOS 15 Sequoia.
 """
 
@@ -21,7 +21,7 @@ class MacAudioProcess:
 
 
 def list_mac_audio_processes() -> List[MacAudioProcess]:
-    """List running applications that can be captured via ScreenCaptureKit / BlackHole."""
+    """List running meeting applications on macOS."""
     if platform.system() != "Darwin":
         return []
 
@@ -37,7 +37,7 @@ def list_mac_audio_processes() -> List[MacAudioProcess]:
     except Exception:
         pass
 
-    # 2. Native macOS fallback via /bin/ps (Zero extra dependency)
+    # 2. Native macOS fallback via /bin/ps
     try:
         out = subprocess.check_output(["ps", "-ax", "-o", "pid,comm"], text=True)
         for line in out.splitlines():
@@ -59,8 +59,8 @@ def list_mac_audio_processes() -> List[MacAudioProcess]:
 
 class MacScreenCaptureKitAudio:
     """
-    ScreenCaptureKit / BlackHole Audio Capture for macOS 12+.
-    Captures system audio or application sound without disk writes.
+    Virtual Audio Device (BlackHole 2ch) / CoreAudio Capture for macOS 12+.
+    Captures system/meeting audio in-memory without disk writes.
     """
 
     def __init__(self, process_id: int = 0, sample_rate: int = 16000, chunk_size: int = 512, stop_event: threading.Event | None = None):
@@ -78,7 +78,7 @@ class MacScreenCaptureKitAudio:
         self.stop_event.set()
 
     def chunks(self) -> Iterator[np.ndarray]:
-        """Stream 16kHz float32 mono audio chunks from BlackHole or ScreenCaptureKit."""
+        """Stream 16kHz float32 mono audio chunks from BlackHole virtual audio device."""
         if platform.system() != "Darwin":
             return
 
@@ -96,7 +96,6 @@ class MacScreenCaptureKitAudio:
             pass
 
         if blackhole_idx is not None:
-            # Stream from BlackHole device directly
             import queue
             q = queue.Queue(maxsize=50)
 
@@ -124,7 +123,6 @@ class MacScreenCaptureKitAudio:
                     except queue.Empty:
                         continue
         else:
-            # 2. Inform user and fallback gracefully
-            print("[MacAudio] Notice: To capture remote meeting audio on macOS, install BlackHole 2ch (`brew install blackhole-2ch`) or grant Screen & Audio Recording permission.")
+            print("[MacAudio] Notice: To capture remote meeting audio on macOS, please install BlackHole 2ch (`brew install blackhole-2ch`).")
             while self._running and not self.stop_event.is_set():
                 self.stop_event.wait(0.1)

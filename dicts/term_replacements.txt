@@ -1,10 +1,10 @@
 # Hayamimi For Business - Term Replacements & Normalization Dictionary
 # License: Apache-2.0 compatible / CC0 Public Domain
-# Format: pattern\tnormalized_term (Tab-separated)
+# Format: pattern	normalized_term (Tab-separated)
 # Lines starting with # are comments.
 
 # ------------------------------------------------------------------------------
-# 1. English Acronyms & Casing Normalization
+# 1. English Acronyms & Casing Normalization (Matched with word boundaries)
 # ------------------------------------------------------------------------------
 kpi	KPI
 kgi	KGI
@@ -19,7 +19,6 @@ ebitda	EBITDA
 roe	ROE
 roa	ROA
 yoy	YoY
-mom	MoM
 qoq	QoQ
 gmv	GMV
 dx	DX
@@ -37,13 +36,11 @@ rfi	RFI
 rfq	RFQ
 nda	NDA
 sla	SLA
-cs	CS
 nps	NPS
 crm	CRM
 sfa	SFA
 erp	ERP
 api	API
-rest	REST
 graphql	GraphQL
 webhook	Webhook
 ci/cd	CI/CD
@@ -67,9 +64,6 @@ kubernetes	Kubernetes
 k8s	K8s
 github	GitHub
 gitlab	GitLab
-slack	Slack
-zoom	Zoom
-teams	Teams
 ceo	CEO
 coo	COO
 cfo	CFO
@@ -85,7 +79,6 @@ ciso	CISO
 ケーピーアイ	KPI
 ディーエックス	DX
 サース	SaaS
-パース	PaaS
 イアース	IaaS
 エーダブリューエス	AWS
 ジーシーピー	GCP
@@ -116,18 +109,3 @@ ciso	CISO
 ミーティングアジェンダ	アジェンダ
 スケジューリング	スケジュール
 リスケジュール	リスケ
-コスト削減	コスト削減
-売上高	売上高
-営業利益	営業利益
-利益率	利益率
-費用対効果	費用対効果
-検収	検収
-納品	納品
-請求書	請求書
-発注書	発注書
-見積書	見積書
-基本合意	基本合意
-最終合意	最終合意
-秘密保持契約	秘密保持契約
-業務委託契約	業務委託契約
-

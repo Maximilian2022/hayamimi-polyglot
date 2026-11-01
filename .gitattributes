@@ -1,0 +1,20 @@
+# Normalize text files and enforce OS-appropriate line endings
+* text=auto
+
+# Shell scripts and macOS command files must use LF
+*.sh text eol=lf
+*.command text eol=lf
+
+# Python and configuration files use LF
+*.py text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+# Windows batch and PowerShell files use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
