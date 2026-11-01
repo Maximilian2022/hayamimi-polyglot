@@ -19,3 +19,4 @@
 - [x] **設計決定事項 (docs/memory.md) の長期記憶更新**
 - [x] **version.txt 連動の GitHub Release 自動作成 & 動的 Portable パッケージ CI/CD 構築**
 - [x] **CI Release ワークフローの gh release edit API 連携修正 (Windows アップロード失敗解消)**
+- [x] **破損キャッシュ破棄 & scripts/download_models.py による完全モデル同梱 (1.8GB) の復元**

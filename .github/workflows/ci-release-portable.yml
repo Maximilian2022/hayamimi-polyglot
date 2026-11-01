@@ -117,22 +117,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: models
-          key: models-int8-v1
+          key: models-int8-full-v1
 
-      - name: Download Base Models if not cached
-        if: steps.cache-models.outputs.cache-hit != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Ensure Complete AI Models
         run: |
-          TAG="${{ steps.version.outputs.TAG }}"
-          echo "Fetching models for $TAG (falling back to v1.0.0 if not yet published)..."
-          if ! gh release download "$TAG" --pattern "*windows-portable.zip" 2>/dev/null; then
-            gh release download v1.0.0 --pattern "*windows-portable.zip"
-          fi
-          ZIP_NAME=$(ls *windows-portable.zip | head -n 1)
-          unzip -q "$ZIP_NAME" "hayamimi-polyglot/models/*"
-          mv hayamimi-polyglot/models ./models
-          rm -rf hayamimi-polyglot "$ZIP_NAME"
+          uv run python scripts/download_models.py
         shell: bash
 
       - name: Build & Run Headless Verification Smoke Test

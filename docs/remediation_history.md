@@ -685,3 +685,17 @@
   - `.github/workflows/ci-release-portable.yml`:
     - 既存リリースが存在する場合のリリースノート更新処理を、GitHub REST API（`repos/{owner}/{repo}/releases/generate-notes`）経由で最新ノート本文を取得して `gh release edit "$TAG" --notes "$NOTES"` に安全に渡す実装へと改修。
     - 並行ジョブ競合防止のため `|| true` によるフォールバックガードを追加。
+
+## 34. CI における破損キャッシュ解消と公式モデル自動ダウンロード・完全同梱 (1.8GB) の復元
+- **背景・不具合報告**:
+  - Portable パッケージのサイズが 1.8GB ではなく約 300MB（macOS: 500MB）と著しく軽量になっていた。
+  - 原因調査:
+    - 以前の CI 実行時に、空の `models` ディレクトリ（452KB）が `actions/cache@v6` の `models-int8-v1` として誤保存されていた。
+    - CI 実行時に「キャッシュヒット（~0MB）」と誤判定され、ベースモデルのダウンロードがスキップされていたため、モデル抜きの Python ランタイムとホイールのみが ZIP 圧縮されていた。
+- **実施内容**:
+  1. `scripts/download_models.py` の新設:
+     - ReazonSpeech Zipformer INT8, Parakeet TDT 0.6B v3 INT8, SenseVoice Small INT8, Silero VAD, M2M-100 CT2, FuguMT CT2 の全必須モデルを公式 GitHub / Hugging Face から直接ダウンロード・展開・検証する自律スクリプトを作成。
+  2. `.github/workflows/ci-release-portable.yml` の改修:
+     - キャッシュキーを `models-int8-full-v1` に更新し、破損した空キャッシュを完全破棄。
+     - キャッシュ成否によらず `scripts/download_models.py` で全モデルの存在を確実に検証・自動取得する安全機構を配備。
+     - これにより、全 INT8 モデル群が 100% 内包された完全自己完結型 Portable パッケージ（約 1.8GB）が確実に生成・リリースされるように復元。
