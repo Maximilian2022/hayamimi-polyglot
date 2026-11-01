@@ -78,15 +78,25 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            pkg_name: hayamimi-polyglot-v1.0.0-windows-portable.zip
+            os_suffix: windows
             build_script: scripts/build_portable_win.py
           - os: macos-latest
-            pkg_name: hayamimi-polyglot-v1.0.0-macos-portable.zip
+            os_suffix: macos
             build_script: scripts/build_portable_mac.py
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+
+      - name: Read Version from version.txt
+        id: version
+        shell: bash
+        run: |
+          VER=$(cat version.txt | tr -d ' \r\n')
+          echo "VERSION=${VER}" >> $GITHUB_OUTPUT
+          echo "TAG=v${VER}" >> $GITHUB_OUTPUT
+          echo "PKG_NAME=hayamimi-polyglot-v${VER}-${{ matrix.os_suffix }}-portable.zip" >> $GITHUB_OUTPUT
+          echo "Resolved version: ${VER}, tag: v${VER}"
 
       - name: Install uv (macOS)
         if: runner.os == 'macOS'
@@ -102,7 +112,7 @@ jobs:
           $uvDir = Join-Path $env:USERPROFILE ".local\bin"
           $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Cache or Fetch AI Models from Release v1.0.0
+      - name: Cache or Fetch AI Models
         id: cache-models
         uses: actions/cache@v6
         with:
@@ -114,10 +124,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release download v1.0.0 --pattern "hayamimi-polyglot-v1.0.0-windows-portable.zip"
-          unzip -q hayamimi-polyglot-v1.0.0-windows-portable.zip "hayamimi-polyglot/models/*"
+          TAG="${{ steps.version.outputs.TAG }}"
+          echo "Fetching models for $TAG (falling back to v1.0.0 if not yet published)..."
+          if ! gh release download "$TAG" --pattern "*windows-portable.zip" 2>/dev/null; then
+            gh release download v1.0.0 --pattern "*windows-portable.zip"
+          fi
+          ZIP_NAME=$(ls *windows-portable.zip | head -n 1)
+          unzip -q "$ZIP_NAME" "hayamimi-polyglot/models/*"
           mv hayamimi-polyglot/models ./models
-          rm -rf hayamimi-polyglot hayamimi-polyglot-v1.0.0-windows-portable.zip
+          rm -rf hayamimi-polyglot "$ZIP_NAME"
         shell: bash
 
       - name: Build & Run Headless Verification Smoke Test
@@ -125,10 +140,26 @@ jobs:
           uv run --python 3.12 python ${{ matrix.build_script }}
         shell: bash
 
-      - name: Upload Portable Package to GitHub Releases v1.0.0
+      - name: Ensure GitHub Release Exists & Refresh Release Notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload v1.0.0 "${{ matrix.pkg_name }}" --clobber
+          TAG="${{ steps.version.outputs.TAG }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG does not exist. Creating with auto-generated release notes..."
+            gh release create "$TAG" --title "Hayamimi Polyglot $TAG" --generate-notes || gh release edit "$TAG" --generate-notes
+          else
+            echo "Release $TAG already exists. Refreshing auto-generated release notes..."
+            gh release edit "$TAG" --generate-notes
+          fi
         shell: bash
 
+      - name: Upload Portable Package to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.TAG }}"
+          PKG="${{ steps.version.outputs.PKG_NAME }}"
+          echo "Uploading $PKG to release $TAG ..."
+          gh release upload "$TAG" "$PKG" --clobber
+        shell: bash

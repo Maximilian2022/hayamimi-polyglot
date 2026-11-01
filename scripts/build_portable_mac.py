@@ -21,7 +21,8 @@ if hasattr(sys.stderr, "reconfigure"):
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = ROOT / "build_mac_portable"
 PKG_DIR = BUILD_DIR / "hayamimi-polyglot"
-OUTPUT_ZIP = ROOT / "hayamimi-polyglot-v1.0.0-macos-portable.zip"
+VERSION = (ROOT / "version.txt").read_text(encoding="utf-8").strip() if (ROOT / "version.txt").is_file() else "1.0.0"
+OUTPUT_ZIP = ROOT / f"hayamimi-polyglot-v{VERSION}-macos-portable.zip"
 
 def download_file(url: str, dst: Path):
     print(f"⬇️ Downloading: {url} ...")

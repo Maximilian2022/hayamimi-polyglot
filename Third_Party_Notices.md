@@ -121,7 +121,36 @@
 ## 4. 辞書・オープンデータ
 
 ### 金融庁 EDINET 全上場企業名オープンデータ
-* **提供元**: 金融庁 (Financial Services Agency, Japan)
-* **ライセンス**: 金融庁オープンデータ利用規約（政府標準利用規約2.0準拠）
+* **提供元**: [金融庁 (Financial Services Agency, Japan)](https://www.fsa.go.jp/) / [EDINET 閲覧（提出）サイト](https://disclosure2.edinet-fsa.go.jp/)
+* **ライセンス**: [EDINET 利用規約](https://disclosure2dl.edinet-fsa.go.jp/guide/static/disclosure/WZEK0030.html) / [金融庁ウェブサイト利用規約](https://www.fsa.go.jp/site/term.html)（[政府標準利用規約2.0準拠](https://www.digital.go.jp/terms-of-use)）
 * **商用利用**: **許諾（Permitted）**
 * **クレジット**: 金融庁 EDINET 提出者一覧オープンデータをもとに作成
+
+### 日本取引所グループ (JPX) 東証上場銘柄一覧オープンデータ
+* **提供元**: [株式会社日本取引所グループ (Japan Exchange Group, Inc.)](https://www.jpx.co.jp/) / [東証上場銘柄一覧（その他統計資料）](https://www.jpx.co.jp/markets/statistics-equities/misc/01.html)
+* **ライセンス**: [JPX サイトのご利用条件（サイトポリシー）](https://www.jpx.co.jp/site-policy/)
+* **商用利用**: **許諾（Permitted）**
+
+### Hayamimi ビジネス用語・英略語・表記補正ルール辞書
+* **提供元**: Hayamimi Polyglot Project（本プロジェクトによる独自作成）
+* **対象ファイル**: dicts/business_terms.txt, dicts/term_replacements.txt
+* **ライセンス**: [Creative Commons Zero v1.0 Universal (CC0-1.0 / Public Domain)](https://creativecommons.org/publicdomain/zero/1.0/deed.ja)
+* **商用利用**: **許諾（Permitted）**
+* **備考**: 外部の著作権保護された辞書からの転載ではなく、ビジネス現場で頻出する一般的な用語・略語・音声認識補正ルールを独自に整理・自作したデータセットです。
+
+---
+
+## 5. オンラインオプション拡張辞書（追加ダウンロードデータ）
+
+### 万病辞書 (Manbyo Dictionary) & MEDIS 標準病名マスター
+* **対象機能**: 医療・製薬・ライフサイエンス専門辞書 (medical_pharma.txt)
+* **提供元**: [奈良先端科学技術大学院大学 (NAIST) ソーシャル・コンピューティング研究室 (万病辞書)](https://sociocom.naist.jp/manbyo-dic/) / [一般財団法人 医療情報システム開発センター (MEDIS-DC)](https://www.medis.or.jp/)
+* **ライセンス**: [Creative Commons Attribution 4.0 International (CC BY 4.0)](https://creativecommons.org/licenses/by/4.0/deed.ja) / [MEDIS 病名マスター利用条件](https://www.medis.or.jp/master/byomei/)
+* **商用利用**: **許諾（Permitted）**
+* **著作権表示**: Copyright (c) 2017-2026 Social Computing Lab, NAIST.
+
+### デジタル庁 e-Gov 法令オープンデータ
+* **対象機能**: 法務・知財・行政・コンプライアンス辞書 (legal_compliance.txt)
+* **提供元**: [デジタル庁 (Digital Agency, Japan) e-Gov法令検索](https://elaws.e-gov.go.jp/)
+* **ライセンス**: [e-Gov利用規約](https://elaws.e-gov.go.jp/terms/) / [デジタル庁ウェブサイト利用規約（政府標準利用規約2.0準拠）](https://www.digital.go.jp/terms-of-use)
+* **商用利用**: **許諾（Permitted）**

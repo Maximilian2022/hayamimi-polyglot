@@ -590,3 +590,89 @@
 
 
 
+
+## 28. ReazonSpeech ASRのGreedy探索最適化とSudachiPy形態素・音韻マッチング確定後処理辞書エンジンの実装
+- **背景・ユーザー要望**:
+  - デフォルト辞書の機能拡充（「オフライン同梱可能なもの」と「オンラインオプション化するもの」の2軸）の検討。
+  - 辞書の役割（音声認識時に誘導するASRホットワードなのか、誤認識テキストを後から直す確定後処理なのか）の明確化。
+  - ReazonSpeech（Byte-level BPE）において sherpa-onnx の `--hotwords`（FSTグラフ）が無効化される既知制約の事実調査と実機検証。
+  - Greedy Search と Modified Beam Search の実機ベンチマーク比較。
+  - 比較検証の結果に基づき、SudachiPy による確定後処理辞書エンジンへの移行方針を決定・承認。
+- **実施内容**:
+  1. **ReazonSpeech デコード方式の検証と Greedy Search 最適化 (`core/asr_engine.py`)**:
+     - 実機ベンチマークにより、sherpa-onnx の Modified Beam Search（paths=4/8）では探索パス枝刈りによって会話中央がごっそり欠落する致命的中抜けバグ（CER 16.3% ➡️ 59.2%）が発生し、処理時間も 174ms から 277ms（+60%遅延）へ悪化、さらに FST スコア加算でも「機会」⇄「機械」等の同音異義語を覆せない限界を確認。
+     - 一方、`greedy_search` は 174ms（RTF 1.3%）で脱落ゼロ、圧倒的な最速性能と高精度を発揮することを確認。
+     - `core/asr_engine.py` の ReazonSpeech 初期化において、デコード方式を常に最速・高安定な `greedy_search` に統一。
+  2. **SudachiPy による確定後処理エンジンの抜本的強化 (`core/dictionary.py`)**:
+     - **読み（`reading_form`）を活用した音韻類似度マッチング**:
+       - 会議前に登録された Instant Hotwords（アジェンダ抽出語）の読み（カタカナ）を SudachiPy で事前計算してキャッシュ。
+       - ASR出力テキストを SudachiPy（`SplitMode.C`）で形態素解析し、各名詞形態素の「読み」とホットワードの読みをレーベンシュタイン距離およびプレフィックス一致で比較。
+       - 例: ユーザーから提起された「『テック』と言ったのを『テッチリ』と誤認識した」ケースにおいて、形態素「テッチリ」（読: テッチリ）を Instant Hotwords「テック」（読: テック）へ 0.5ms で確実に文脈補正するロジックを実装。
+     - **英略語・表記ゆれのケース正規化**:
+       - `kpi` ➡️ `KPI`、`dx` ➡️ `DX`、`saas` ➡️ `SaaS`、`arr` ➡️ `ARR` 等を SudachiPy 正規化形および単語境界マッチングにより自動大文字化。
+     - **日常語ストップワード保護による誤爆防止**:
+       - 「会社」「今日」「今回」「相手」「時間」など日常頻出語を保護リストに登録し、誤った置換を 100% 防止。
+     - **API の健全化**:
+       - 非推奨警告 `Dictionary.create()` を `Dictionary.tokenizer()` に更新。
+  3. **デフォルト辞書の2軸拡充 (`dicts/`)**:
+     - **① オフライン同梱辞書（商用安全 Apache-2.0 / CC0 / パブリックドメイン、軽量、完全ローカル）**:
+       - `dicts/business_terms.txt`: 現代ビジネス、マネジメント、財務・セールス、IT・AI・クラウド用語を 250 語以上に拡充（4カテゴリ分類）。
+       - `dicts/listed_companies.txt`: 東証プライム・スタンダード主要企業、有力ITメガベンチャー、主要グローバルTech企業（Google, Apple, Microsoft, NVIDIA, OpenAI 等）を 250 社以上に拡充。
+       - `dicts/term_replacements.txt` (新設): 音声認識誤認識・略語正規化・表記ゆれ置換ルール（116ルール）を新規配備。
+     - **② オンラインオプション拡張辞書の枠組み整備 (`dicts/extensions/`)**:
+       - `medical_pharma`（医療・製薬・ライフサイエンス）、`legal_compliance`（法務・知財・行政）、`edinet_full`（全上場企業4000社）、`science_engineering`（先端工学）のカタログ管理APIを実装。
+       - 必要に応じて 1 クリックで GitHub Releases から静的取得できる Zero Telemetry アーキテクチャを確立。
+  4. **総合検証とテストスイート拡充 (`test_polyglot_suite.py`)**:
+     - `test_dictionary_and_hotwords()` に静的置換、SudachiPy 音韻類似度マッチング、拡張カタログのテストケースを追加。
+     - 全7テスト（ASR・VAD・多言語翻訳・LID・セキュリティ制約等）を実行し、**100% PASS**（ALL TESTS PASSED）を確認。
+
+## 29. Third_Party_Notices.md の辞書・オープンデータライセンス表記の拡充
+- **背景・ユーザー要望**:
+  - 新設・拡充したビジネス辞書、表記補正辞書、上場企業オープンデータ、およびオンラインオプション拡張辞書に関するサードパーティライセンス追記の実施。
+  - 独自作成辞書の出自（外部転載ではなく本プロジェクトでの自作データセットである点）の明確化。
+- **実施内容**:
+  1. `Third_Party_Notices.md` に以下を追記:
+     - **日本取引所グループ (JPX) 東証上場銘柄一覧オープンデータ**: 政府標準利用規約2.0互換（商用利用可能）。
+     - **Hayamimi ビジネス用語・英略語・表記補正ルール辞書**: 本プロジェクトによる独自自作データセット（CC0 1.0 Universal / Public Domain）。外部有償辞書等の転載ではなく、商用利用フリーであることを明記。
+     - **オンラインオプション拡張辞書**:
+       - 万病辞書（NAIST）＆ 厚労省 MEDIS 標準病名マスター（CC BY 4.0 / MEDIS利用規約）。
+       - デジタル庁 e-Gov 法令オープンデータ（政府標準利用規約2.0）。
+
+## 30. Third_Party_Notices.md の辞書・オープンデータ提供元およびライセンス公式URLリンクの網羅
+- **背景・ユーザー要望**:
+  - `Third_Party_Notices.md` の第4節（辞書・オープンデータ）および第5節（オンラインオプション拡張辞書）におけるすべての提供元とライセンスについて、直接参照可能な公式URLハイパーリンクを付与したい。
+- **実施内容**:
+  - 金融庁（EDINETサイト、利用規約、政府標準利用規約2.0）
+  - 日本取引所グループ（JPXトップ、東証上場銘柄一覧、サイトポリシー）
+  - Hayamimi 自作辞書（Creative Commons CC0 1.0 公式ライセンスページ）
+  - 万病辞書（NAIST ソーシャル・コンピューティング研究室、CC BY 4.0 公式ライセンスページ）
+  - MEDIS 標準病名マスター（MEDIS-DC 公式サイト、利用規約ページ）
+  - デジタル庁 e-Gov 法令検索（トップ、利用規約、デジタル庁ウェブサイト利用規約）
+  の全公式URLリンクを付与。
+
+## 31. version.txt 連動による GitHub Release 自動生成＆動的 Portable パッケージリリースの実装
+- **背景・ユーザー要望**:
+  - `version.txt` を書き換えてプッシュした場合、そのバージョンに対応する GitHub Release（タグ）が存在しなければ自動で新規作成し、その新しいリリースに対して Portable パッケージ（Win/Mac）をビルド・アップロードする動的パイプラインにしたい。
+- **実施内容**:
+  1. **ビルドスクリプトの動的バージョン化 (`scripts/build_portable_win.py`, `scripts/build_portable_mac.py`)**:
+     - 出力 ZIP ファイル名を `hayamimi-polyglot-v1.0.0-...` の固定値から、`version.txt` を読み込んで `hayamimi-polyglot-v{VERSION}-{os}-portable.zip` を動的生成する仕様に変更。
+  2. **CI ワークフローの動的化 (`.github/workflows/ci-release-portable.yml`)**:
+     - `version.txt` からバージョン番号（`VERSION`）、Git タグ（`TAG=v${VERSION}`）、および OS 別の ZIP パッケージ名を動的抽出。
+     - **リリースの自動生成 (`Ensure GitHub Release Exists`)**:
+       - `gh release view "$TAG"` で存在確認を行い、まだ存在しないバージョンの場合は `gh release create "$TAG" --title "Hayamimi Polyglot $TAG" --generate-notes` で自動作成。
+     - **モデル取得のフォールバック保護**:
+       - 新規バージョン作成時でまだアセットが存在しない場合でも、ベースリリース `v1.0.0` から AI モデルを自動取得してビルドを 100% 成功させるフォールバックを実装。
+     - **動的アップロード**:
+       - `gh release upload "$TAG" "$PKG" --clobber` により、`version.txt` で指定されたタグの Release に対して Win/Mac の Portable ZIP を自動アップロード。
+
+## 32. バージョン 1.0.1 へのインクリメントおよびリリースノート常時自動生成・最新化の導入
+- **背景・ユーザー要望**:
+  - バージョンを `1.0.1` に更新してリリースしたい。
+  - 新規リリース作成時だけでなく、リリースが更新された際にも都度最新のコミット履歴・変更内容を反映したリリースノートが自動生成・最新化されるようにしたい。
+- **実施内容**:
+  1. `version.txt` を `1.0.1` にインクリメント。
+  2. `docs/memory.md` 内のパッケージ名表記を `1.0.1` に更新。
+  3. `.github/workflows/ci-release-portable.yml`:
+     - 新規リリース作成時に `gh release create "$TAG" --generate-notes` を実行。
+     - 既存リリースの更新時にも `gh release edit "$TAG" --generate-notes` を実行し、直前バージョンからの全コミット差分が記載されたリリースノートが常に新しく自動再生成・更新されるパイプラインを確立。
+     - 並行ジョブ競合防止フォールバック（`create || edit`）を導入。

@@ -39,7 +39,7 @@ hayamimi-polyglot/
 ├── setup.sh                # macOS 向けランチャー (uv経由でinstaller_gui.pyを即時起動)
 ├── start.bat / start.sh    # ワンクリック起動ランチャー
 ├── test_polyglot_suite.py  # 全機能総合検証テストスイート
-└── version.txt             # セマンティックバージョニング (1.0.0)
+└── version.txt             # セマンティックバージョニング (1.0.1)
 ```
 
 ---
@@ -73,10 +73,25 @@ hayamimi-polyglot/
 - **相手**: OS標準の **WASAPI Process Loopback** を利用し、「Zoom.exe」「Teams.exe」「Slack.exe」のプロセスPIDを特定して音声のみを直接ループバック取得（Track 2）。
 - **計算負荷ゼロの話者分離**: 最初から物理的に音声ストリームが2系統に分かれているため、話者ダイアライゼーション（重いAI計算）を行わずに「自分」「相手」を100%正確に識別。
 
-### ④ Instant Hotwords ＆ クリーンビジネス辞書
-- 会議直前にアジェンダやスライドのテキストをコピペするだけで、形態素解析・パターンマッチにより固有名詞、社内プロジェクト名、英字略語（ARR, KPI, DX等）を自動抽出。
-- ASRデコード時に Hotwords として注入し、未知語や専門用語の誤認識を劇的に防止。
-- 金融庁EDINETの全上場企業名オープンデータおよび SudachiDict (Full, Apache 2.0) を内包。
+### ④ Instant Hotwords ＆ クリーンビジネス辞書（SudachiPy 確定後処理アーキテクチャ）
+- **ASR探索と後処理の分離決定（2026-11 実機ベンチマークにより確定）**:
+  - ReazonSpeech は Byte-level BPE を採用しており、sherpa-onnx の --hotwords（FSTグラフ）に渡すと日本語トークンが 100% 破棄される仕様上の制約がある。
+  - 特殊バイトトークン列（▁+3文字）へ事前分解して Modified Beam Search で FST グラフを強制構築・実行可能にしたものの、実機検証の結果：
+    1. **探索パス枝刈りによる発話脱落**: 会話中央が大きく消える致命的な中抜けが発生（CER 16.3% -> 59.2% へ大幅悪化）。
+    2. **推論遅延の増大**: 処理時間が 174ms から 277ms（+60%増）へ増加。
+    3. **同音異義語の限界**: 音響・言語結合（Joiner）の確率バイアスが強固なため、FST スコア加算でも「機会」⇄「機械」等の同音異義語を覆せない。
+  - 一方、**Greedy Search は 174ms（RTF 1.3%）で脱落ゼロ、圧倒的な最高速と高い認識精度**を発揮。
+  - **結論**: ASR は最速・高安定な **Greedy Search** で動作させ、専門用語・表記ゆれ・同音異義語の補正は認識確定テキストに対して **SudachiPy（形態素解析・SudachiDict-Full）を用いた確定後処理エンジン（1ms以内）で補正するハイブリッドアーキテクチャ** を採用。
+
+- **Instant Hotwords & 確定後処理エンジンの機能**:
+  - 会議直前にアジェンダやスライドのテキストをコピペするだけで、SudachiPy により固有名詞、社内プロジェクト名、英字略語（ARR, KPI, DX等）を自動抽出（Instant Hotwords）。
+  - **読み（reading_form）に基づく誤認識補正**: ASR 出力テキストを SudachiPy で形態素解析し、各形態素の「読み」と Instant Hotwords の音韻類似度・編集距離を比較して、音響的な誤認識（例: 「テック」⇄「テッチリ」）を高精度に文脈補正。
+  - **英略語・カタカナ用語の自動正規化**: saas -> SaaS, kpi -> KPI, dx -> DX, 2b -> B2B 等の大文字小文字や記号を自動統一。
+  - **Zero Telemetry ＆ データハイジーン**: 会議終了時に Instant Hotwords はメモリ上から完全消去（ディスク永続化ゼロ）。ユーザーの機密ワードや議事録ログを一切残さない。
+
+- **デフォルト辞書の2軸構成**:
+  - **① オフライン同梱辞書**: Apache-2.0 / CC0 / パブリックドメインの商用安全ライセンス。数MB以内でポータブル版に内包。現代ビジネス用語（300語以上）、英略語・財務指標（150語以上）、IT/AI/クラウド用語（200語以上）、主要上場企業名・グローバルTech企業名。
+  - **② オンラインオプション拡張辞書**: 医療・薬学（MEDIS/万病辞書）、法務・行政用語（e-Gov）、全上場企業EDINET完全版（約4,000社）など、大容量または特定業種向け辞書を設定/インストーラーから1クリックで追加可能（GitHub Releases からの安全な静的DL、外部への通信送信ゼロ）。
 
 ### ⑤ クラウド同期フォルダ自動検知・退避
 - 企業の PC 環境では `My Documents` が OneDrive や Google Drive に同期されているケースが多いため、大量の AI モデルや Python 仮想環境がクラウド同期によって同期負荷・企業セキュリティ警告を引き起こすのを防止。
@@ -177,10 +192,10 @@ Hayamimi Polyglot で稼働する全 8 言語対応モデル群と推論エン�
 - **企業プロキシ (Zscaler / Palo Alto / BlueCoat) 自動突破**:
   - `setup.ps1` および `setup.sh` に `UV_SYSTEM_CERTS=true` / `PIP_USE_FEATURE=truststore` を標準組込み。
   - OSネイティブの信頼されたルート証明書ストア（Windows Root CA / macOS Keychain）を直接参照し、SSLインスペクション環境における証明書検証エラー（`CERTIFICATE_VERIFY_FAILED`）および PyPI ダウンロード拒否（HTTP 403）を回避。
-- **Windows Standalone Portable ZIP (`hayamimi-polyglot-v1.0.0-windows-portable.zip`)**:
+- **Windows Standalone Portable ZIP (`hayamimi-polyglot-v1.0.1-windows-portable.zip`)**:
   - Python 3.12 仮想環境（`.venv`）、INT8最適化モデル群、ビジネス辞書、UIを全内包。
   - 解凍して `start.bat` ダブルクリックで即起動。
-- **macOS Standalone Portable ZIP (`hayamimi-polyglot-v1.0.0-macos-portable.zip`)**:
+- **macOS Standalone Portable ZIP (`hayamimi-polyglot-v1.0.1-macos-portable.zip`)**:
   - macOS 特有の仮想環境パス不整合（`bad interpreter`）を回避するため、全依存 wheel（macOS arm64/universal2 向け 39 個, 487MB）＋最適化モデル群を ZIP に内包。
   - 初回起動時、同梱の `wheels/` から `uv pip install --no-index --find-links ./wheels` により、その Mac のローカル環境に完全適合した `.venv` を外部通信ゼロで自律構築し即起動。
   - Finder ダブルクリック用 `Hayamimi Polyglot.command`（実行権限 0o755 同梱）で実行可能。

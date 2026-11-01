@@ -1,17 +1,20 @@
 # 一時作業メモ (memo.md)
 
 ## 現在のタスク
-- [x] **総合レビューレポート (`docs/report/Report.md`) 精査と実装計画の策定**
-  - [x] S10（クリップボード同期除外）: 採用完了（Phase 2）
-  - [x] M2（macOS 音声キャプチャ）: ScreenCaptureKit ＆ BlackHole 連携完了
-  - [x] P6（リサンプリング品質）: NumPy 範囲での高品質リサンプリング設計
-  - [x] B18（プロセス再読込）: 直前選択アプリ記憶・新PID追従完了
-- [x] **商用ライセンス遵守・クリーン化（ユーザー指示）**
-  - [x] ベトナム語 Zipformer の完全非対応化・削除（非商用モデルの完全排除）
-  - [x] SenseVoice Small の商用利用可否の調査・根拠確認（FunASR Model License v1.1 - 商用利用可）
-  - [x] Third_Party_Notices.md の作成（全モデル・ライブラリのライセンス表記網羅）
-  - [x] 免責事項の明示（AI参考訳・正式通訳ではない旨の README / UI 記載）
-  - [x] 外部通信ゼロの注釈記載（通訳パイプライン完全ローカル実行）
-  - [x] アジェンダ由来ホットワードの完全削除（セッション終了時ディスク＆メモリ抹消）
-  - [x] ミーティング時の相手への事前告知推奨（README 追記）
-  - [x] 総合テストスイート（7言語構成）の 100% PASS 確認
+- [x] **ReazonSpeech ホットワード制約調査 & ベンチマーク検証**
+  - [x] Byte-level BPE による sherpa-onnx FST トークン破棄の解明
+  - [x] Greedy Search vs Modified Beam Search 実機性能測定（Greedy 174ms 脱落ゼロ vs Beam 277ms 中抜けCER 59%）
+  - [x] 設計合意: ASR は最速 Greedy Search、補正は SudachiPy 形態素解析による確定後処理エンジンを採用
+- [x] **SudachiPy による確定後処理エンジンの実装 (core/dictionary.py)**
+  - [x] 読み (reading_form) を利用した音響類似誤認識の補正 (例: テック vs テッチリ を 0.5ms で高精度補正)
+  - [x] 英略語・表記ゆれのケース正規化 (kpi -> KPI, saas -> SaaS, dx -> DX)
+  - [x] 日常語ストップワード保護による誤爆防止
+  - [x] Dictionary.tokenizer() への移行による非推奨警告解消
+- [x] **デフォルト辞書の拡充 (2軸)**
+  - [x] ① オフライン同梱: usiness_terms.txt (250語+), listed_companies.txt (250社+), 	erm_replacements.txt (116ルール新設)
+  - [x] ② オンラインオプション: dicts/extensions/ カタログ枠組み (医療・製薬、法務・行政、EDINET 4000社、先端科学技術)
+- [x] **ASR エンジン (core/asr_engine.py) の Greedy Search 統一**
+- [x] **テストスイート (	est_polyglot_suite.py) の検証 (全7テスト 100% PASS)**
+- [x] **改修履歴 (docs/remediation_history.md) の更新**
+- [x] **設計決定事項 (docs/memory.md) の長期記憶更新**
+- [x] **version.txt 連動の GitHub Release 自動作成 & 動的 Portable パッケージ CI/CD 構築**

@@ -66,7 +66,25 @@ def test_dictionary_and_hotwords():
 
     assert any("Project-Titan" in k or "Titan" in k for k in keywords), "Project acronym should be extracted"
     assert any("KPI" in k or "ARR" in k for k in keywords), "Business acronyms should be extracted"
-    print("  [PASS] Business Dictionary & Hotwords verified.")
+
+    # Test static term replacements & acronym normalization
+    raw_misheard = "今回のオンプレ環境でケイピーアイを測定しdxを推進する"
+    norm_result = bdict.apply_replacements(raw_misheard)
+    assert "オンプレミス" in norm_result, f"Expected 'オンプレミス', got: {norm_result}"
+    assert "KPI" in norm_result, f"Expected 'KPI', got: {norm_result}"
+    assert "DX" in norm_result, f"Expected 'DX', got: {norm_result}"
+
+    # Test SudachiPy phonetic correction (e.g. テッチリ -> テック from hotwords)
+    bdict.set_instant_hotwords(["テック", "Kubernetes"])
+    asr_fuzzy_text = "今週のテッチリカンファレンスでコミットする"
+    corrected = bdict.apply_replacements(asr_fuzzy_text)
+    assert "テック" in corrected, f"Expected phonetic match 'テック', got: {corrected}"
+
+    # Test extension catalog
+    catalog = bdict.get_extension_catalog()
+    assert len(catalog) >= 4, f"Expected at least 4 extension dicts in catalog, got {len(catalog)}"
+
+    print("  [PASS] Business Dictionary & Hotwords verified (Static replacements + SudachiPy Phonetic + Catalog).")
 
 
 def test_vad():
