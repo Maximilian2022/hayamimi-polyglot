@@ -777,3 +777,16 @@
   3. **ドキュメント整備 (`README.md`)**:
      - Windows 11 でブラウザダウンロードした ZIP を利用する際の Smart App Control / SmartScreen 回避手順（ZIP 展開前の「プロパティ」➔「セキュリティ: 許可する (Unblock)」チェック）を上品・丁寧に案内。
      - MOTW が付与されない Web ワンライナー版の利便性についても注記。
+
+
+## 37. Web ワンライナー実行時の「予期しない属性 CmdletBinding」エラーの解消
+- **背景・不具合報告**:
+  - Windows PowerShell でワンライナー（`irm https://.../setup.ps1 | iex`）を実行した際、`Invoke-Expression: 予期しない属性 CmdletBinding があります`（および `予期しないトークン 'param'`）という構文エラーが発生しセットアップが開始できない。
+- **原因の特定**:
+  - `setup.ps1` が UTF-8 with BOM（`\uFEFF`）で保存されていた。
+  - ファイルを直接 `powershell.exe -File setup.ps1` で実行する場合は OS ローダーが BOM を自動除去するが、`Invoke-RestMethod`（`irm`）経由でリモート取得した場合、HTTP レスポンスの文字列オブジェクトの先頭に文字コード `0xFEFF`（ゼロ幅非改行スペース）が 1 文字目として残存する。
+  - その結果、PowerShell 5.1 の構文パーサーが「コメント以外のトークンが既に現れた」と誤判定し、直後の `[CmdletBinding()]` および `param()` を「先頭ステートメントではない位置に置かれた無効な構文」としてエラーを出力していた。
+- **実施内容**:
+  1. `setup.ps1` を純粋な UTF-8（BOM なし）で再保存し、BOM の混入を完全に排除。
+  2. スクリプトの 1 行目に `[CmdletBinding()]` と `param(...)` を配置し、PowerShell 5.1（Windows PowerShell）および PowerShell 7（pwsh）の双方でパーサー解釈が確実に安定する構造に整理。
+  3. Windows PowerShell 5.1 上でリモート取得を模擬したスクリプトブロック生成（`[scriptblock]::Create`）テストを実施し、構文エラーなく 100% 正常に解釈・起動されることを実機確認。

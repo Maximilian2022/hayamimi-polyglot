@@ -21,3 +21,6 @@
   - [x] 案2: 不要な未署名バイナリ（他アーキテクチャの PortAudio DLL、NumPy テスト用 .pyd、pip スタブ）の自動削除機構を実装 (`scripts/build_portable_win.py`)
   - [x] 案3-A: `README.md` に Windows 11 Smart App Control / SmartScreen 向けの ZIP プロパティ「許可する (Unblock)」手順を上品・明瞭に追記
   - [x] 再配布ライセンス要件 (PSFL v2) の確認と `Third_Party_Notices.md` への反映
+- [x] **ワンライナー実行時エラー (Invoke-Expression: 予期しない属性 CmdletBinding) の解消**
+  - [x] 原因特定: `setup.ps1` の UTF-8 BOM (`\uFEFF`) が `Invoke-RestMethod` 時に文字列先頭に残り、PowerShell 5.1 の `param()` パースが破壊されていた
+  - [x] 修正: `setup.ps1` を純粋な UTF-8（BOMなし）に修正し、`[CmdletBinding()]` / `param()` をスクリプトの1行目に配置してパースを完全安定化

@@ -1,9 +1,3 @@
-﻿# ==============================================================================
-# Hayamimi Polyglot - Setup & Updater Launcher (Windows 11)
-# Non-Admin Setup. Launches Unified PySide6 GUI via uv.
-# ==============================================================================
-
-#Requires -Version 5.1
 [CmdletBinding()]
 param(
     [switch]$Cli,
@@ -12,6 +6,13 @@ param(
     [switch]$WithSenseVoice,
     [string]$InstallPath = ""
 )
+
+# ==============================================================================
+# Hayamimi Polyglot - Setup & Updater Launcher (Windows 11)
+# Non-Admin Setup. Launches Unified PySide6 GUI via uv.
+# ==============================================================================
+
+#Requires -Version 5.1
 
 # Set UTF-8 encoding
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
