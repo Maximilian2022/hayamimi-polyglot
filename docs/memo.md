@@ -24,3 +24,9 @@
 - [x] **ワンライナー実行時エラー (Invoke-Expression: 予期しない属性 CmdletBinding) の解消**
   - [x] 原因特定: `setup.ps1` の UTF-8 BOM (`\uFEFF`) が `Invoke-RestMethod` 時に文字列先頭に残り、PowerShell 5.1 の `param()` パースが破壊されていた
   - [x] 修正: `setup.ps1` を純粋な UTF-8（BOMなし）に修正し、`[CmdletBinding()]` / `param()` をスクリプトの1行目に配置してパースを完全安定化
+- [x] **外部通信ゼロ（完全オフライン推論）の機械的自動検証テスト (Network Isolation Guard) の実装**
+  - [x] 低レベルソケット API（`connect`, `connect_ex`, `sendto`, `getaddrinfo`, `gethostbyname`）を監視・遮断する `network_isolation_guard` を作成
+  - [x] 意図的な外部接続・外部DNS解決の能動的ブロック性能をテスト検証
+  - [x] 7言語ASR、7言語NMT翻訳、およびエンドツーエンド推論パイプライン（Audio ➔ VAD ➔ DSP ➔ ASR ➔ Dict ➔ NMT）全体を完全ネットワーク遮断下で実行し、外部通信 0 回（ゼロリーク）をアサート
+  - [x] `test_polyglot_suite.py` を全9テスト構成に拡張し、全テスト 100% PASS を実機確認
+  - [x] `README.md`、`SECURITY.md`、`CONTRIBUTING.md` に自動検証仕様を追記

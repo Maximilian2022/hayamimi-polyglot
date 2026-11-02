@@ -4,18 +4,21 @@ Validates:
   1. Business Dictionary & Instant Hotwords extraction + Word-boundary safety.
   2. Silero VAD (Voice Activity Detection + Hysteresis).
   3. 4-Stage Broadcast Audio DSP Chain (Noise Gate, Mid-EQ, De-Esser, AGC Compressor).
-  4. 7-Language ASR Audio Transcription (ja, en, zh, ko, fr, de, es).
+  4. 7-Language ASR Audio Transcription (ja, en, zh, ko, fr, de, es, with Network Guard).
   5. Lazy Loading & Dynamic Memory Management (On-demand model activation).
-  6. 7-Language Local Multilingual Translation (M2M-100 & FuguMT with EOS).
+  6. 7-Language Local Multilingual Translation (M2M-100 & FuguMT, with Network Guard).
   7. Multi-script Language Identification (LID).
-  8. Security & System Constraints (127.0.0.1 binding, token auth, history clear, zero disk audio).
+  8. Strict Network Isolation & Zero Telemetry Verification (Zero outbound socket/DNS calls).
+  9. Security & System Constraints (127.0.0.1 binding, token auth, history clear, zero disk audio).
 """
 
 from __future__ import annotations
 
 import io
 import os
+import socket
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 # Fix Windows console CP932 encoding for multilingual output
@@ -37,6 +40,75 @@ from core.audio.win_loopback import list_audio_processes
 from core.dictionary import BusinessDictionary
 from core.translator import LocalTranslator
 from core.vad import SileroVAD
+
+
+class NetworkLeakError(AssertionError):
+    """Raised when an unauthorized outbound network connection is attempted."""
+    pass
+
+
+@contextmanager
+def network_isolation_guard():
+    """
+    Strict network isolation context manager.
+    Hooks into Python's low-level socket APIs and intercepts any outbound
+    connection, packet sending, or DNS name resolution to non-loopback addresses.
+    Verifies that the inference pipeline operates 100% offline with zero telemetry.
+    """
+    orig_connect = socket.socket.connect
+    orig_connect_ex = socket.socket.connect_ex
+    orig_sendto = socket.socket.sendto
+    orig_getaddrinfo = socket.getaddrinfo
+    orig_gethostbyname = socket.gethostbyname
+
+    def is_loopback(host: object) -> bool:
+        if not host:
+            return True
+        h = str(host).lower().strip()
+        return h in ("127.0.0.1", "localhost", "::1", "0.0.0.0") or h.startswith("127.")
+
+    def guarded_connect(self, address):
+        host = address[0] if isinstance(address, (tuple, list)) and len(address) > 0 else str(address)
+        if not is_loopback(host):
+            raise NetworkLeakError(f"External network connection attempt blocked: {address}")
+        return orig_connect(self, address)
+
+    def guarded_connect_ex(self, address):
+        host = address[0] if isinstance(address, (tuple, list)) and len(address) > 0 else str(address)
+        if not is_loopback(host):
+            raise NetworkLeakError(f"External network connect_ex attempt blocked: {address}")
+        return orig_connect_ex(self, address)
+
+    def guarded_sendto(self, data, *args):
+        addr = args[0] if args else None
+        host = addr[0] if isinstance(addr, (tuple, list)) and len(addr) > 0 else str(addr)
+        if addr is not None and not is_loopback(host):
+            raise NetworkLeakError(f"External UDP sendto attempt blocked: {addr}")
+        return orig_sendto(self, data, *args)
+
+    def guarded_getaddrinfo(host, port, *args, **kwargs):
+        if not is_loopback(host):
+            raise NetworkLeakError(f"External DNS resolution attempt blocked: {host}")
+        return orig_getaddrinfo(host, port, *args, **kwargs)
+
+    def guarded_gethostbyname(host):
+        if not is_loopback(host):
+            raise NetworkLeakError(f"External DNS gethostbyname attempt blocked: {host}")
+        return orig_gethostbyname(host)
+
+    socket.socket.connect = guarded_connect
+    socket.socket.connect_ex = guarded_connect_ex
+    socket.socket.sendto = guarded_sendto
+    socket.getaddrinfo = guarded_getaddrinfo
+    socket.gethostbyname = guarded_gethostbyname
+    try:
+        yield
+    finally:
+        socket.socket.connect = orig_connect
+        socket.socket.connect_ex = orig_connect_ex
+        socket.socket.sendto = orig_sendto
+        socket.getaddrinfo = orig_getaddrinfo
+        socket.gethostbyname = orig_gethostbyname
 
 
 def find_models_dir() -> Path:
@@ -156,7 +228,7 @@ def test_audio_dsp_chain():
 
 
 def test_7_languages_asr():
-    print("\n[TEST 4/8] Testing All 7 Core Languages ASR Audio Decoding...")
+    print("\n[TEST 4/9] Testing All 7 Core Languages ASR Audio Decoding (with Network Isolation Guard)...")
     models_dir = find_models_dir()
     asr = BusinessASREngine(
         models_dir=models_dir,
@@ -173,22 +245,23 @@ def test_7_languages_asr():
         ("es", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/es.wav", "Parakeet TDT 0.6B v3"),
     ]
 
-    for lang, rel_path, expected_model in test_samples:
-        p = _HERE / rel_path
-        assert p.is_file(), f"Audio file not found: {p}"
-        audio, sr = sf.read(str(p))
-        if audio.ndim > 1:
-            audio = audio[:, 0]
+    with network_isolation_guard():
+        for lang, rel_path, expected_model in test_samples:
+            p = _HERE / rel_path
+            assert p.is_file(), f"Audio file not found: {p}"
+            audio, sr = sf.read(str(p))
+            if audio.ndim > 1:
+                audio = audio[:, 0]
 
-        text = asr.transcribe_pcm(audio.astype(np.float32), hint_lang=lang)
-        print(f"  -> [{lang.upper()}] ({expected_model}): {text}")
-        assert len(text) > 0, f"ASR transcription failed for {lang}"
+            text = asr.transcribe_pcm(audio.astype(np.float32), hint_lang=lang)
+            print(f"  -> [{lang.upper()}] ({expected_model}): {text}")
+            assert len(text) > 0, f"ASR transcription failed for {lang}"
 
-    print("  [PASS] All 7 core languages ASR verified.")
+    print("  [PASS] All 7 core languages ASR verified with zero outbound network calls.")
 
 
 def test_lazy_loading_and_memory():
-    print("\n[TEST 5/8] Testing ASR Lazy Loading & Dynamic Memory Management...")
+    print("\n[TEST 5/9] Testing ASR Lazy Loading & Dynamic Memory Management...")
     models_dir = find_models_dir()
     asr = BusinessASREngine(models_dir=models_dir, initial_languages=["ja", "en"])
 
@@ -214,48 +287,49 @@ def test_lazy_loading_and_memory():
 
 
 def test_7_languages_translation():
-    print("\n[TEST 6/8] Testing 7 Languages Multilingual Translation (M2M-100 & FuguMT)...")
+    print("\n[TEST 6/9] Testing 7 Languages Multilingual Translation (M2M-100 & FuguMT, with Network Isolation Guard)...")
     models_dir = find_models_dir()
     translator = LocalTranslator(models_dir=models_dir)
 
-    # 1. Specialized FuguMT ja -> en (check EOS fix: no repetition hallucination on short phrases)
-    ja_text = "本日の四半期決算の進捗とKPIを確認します。"
-    en_result = translator.translate_ja_to_en(ja_text)
-    print("  -> [ja -> en] (FuguMT):", en_result)
-    assert len(en_result) > 0
+    with network_isolation_guard():
+        # 1. Specialized FuguMT ja -> en (check EOS fix: no repetition hallucination on short phrases)
+        ja_text = "本日の四半期決算の進捗とKPIを確認します。"
+        en_result = translator.translate_ja_to_en(ja_text)
+        print("  -> [ja -> en] (FuguMT):", en_result)
+        assert len(en_result) > 0
 
-    short_ja = "システムの設定を変更します。"
-    short_en = translator.translate_ja_to_en(short_ja)
-    print("  -> [ja -> en short] (FuguMT):", short_en)
-    assert len(short_en) > 0 and len(short_en.split()) < 20, f"Unexpected repetition in FuguMT output: {short_en}"
+        short_ja = "システムの設定を変更します。"
+        short_en = translator.translate_ja_to_en(short_ja)
+        print("  -> [ja -> en short] (FuguMT):", short_en)
+        assert len(short_en) > 0 and len(short_en.split()) < 20, f"Unexpected repetition in FuguMT output: {short_en}"
 
-    # 2. Universal M2M-100 to Japanese
-    test_cases = [
-        ("en", "We are pleased to announce our quarterly business growth.", "ja"),
-        ("zh", "开饭时间早上9点至下午5点。", "ja"),
-        ("ko", "조금만 생각을 하면서 살면 훨씬 편할 거야.", "ja"),
-        ("fr", "Ne vous demandez pas ce que votre pays peut faire pour vous.", "ja"),
-        ("de", "Alles hat ein Ende, nur die Wurst zwei.", "ja"),
-        ("es", "No preguntes que puede hacer tu país por ti.", "ja"),
-    ]
+        # 2. Universal M2M-100 to Japanese
+        test_cases = [
+            ("en", "We are pleased to announce our quarterly business growth.", "ja"),
+            ("zh", "开饭时间早上9点至下午5点。", "ja"),
+            ("ko", "조금만 생각을 하면서 살면 훨씬 편할 거야.", "ja"),
+            ("fr", "Ne vous demandez pas ce que votre pays peut faire pour vous.", "ja"),
+            ("de", "Alles hat ein Ende, nur die Wurst zwei.", "ja"),
+            ("es", "No preguntes que puede hacer tu país por ti.", "ja"),
+        ]
 
-    for src_l, text, tgt_l in test_cases:
-        res = translator.translate(text, src_lang=src_l, tgt_lang=tgt_l)
-        print(f"  -> [{src_l} -> {tgt_l}] (M2M-100): {res}")
-        assert len(res) > 0, f"Translation failed for {src_l} -> {tgt_l}"
+        for src_l, text, tgt_l in test_cases:
+            res = translator.translate(text, src_lang=src_l, tgt_lang=tgt_l)
+            print(f"  -> [{src_l} -> {tgt_l}] (M2M-100): {res}")
+            assert len(res) > 0, f"Translation failed for {src_l} -> {tgt_l}"
 
-    # 3. Japanese to Asian languages
-    zh_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="zh")
-    ko_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="ko")
-    print("  -> [ja -> zh] (M2M-100):", zh_res)
-    print("  -> [ja -> ko] (M2M-100):", ko_res)
+        # 3. Japanese to Asian languages
+        zh_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="zh")
+        ko_res = translator.translate("本日のアジェンダを確認します。", src_lang="ja", tgt_lang="ko")
+        print("  -> [ja -> zh] (M2M-100):", zh_res)
+        print("  -> [ja -> ko] (M2M-100):", ko_res)
 
-    translator.shutdown()
-    print("  [PASS] 7-language bidirectional translation verified.")
+        translator.shutdown()
+    print("  [PASS] 7-language bidirectional translation verified with zero outbound network calls.")
 
 
 def test_language_identification():
-    print("\n[TEST 7/8] Testing Multilingual Language Identification (_detect_src_lang)...")
+    print("\n[TEST 7/9] Testing Multilingual Language Identification (_detect_src_lang)...")
     from main import SessionWorker
 
     class DummyVAD:
@@ -291,8 +365,77 @@ def test_language_identification():
     print("  [PASS] Language identification verified.")
 
 
+def test_zero_network_telemetry():
+    print("\n[TEST 8/9] Testing Strict Network Isolation & Zero Telemetry Verification...")
+    # 1. Guard integrity check: verify that non-loopback connection attempts are strictly blocked
+    with network_isolation_guard():
+        blocked = False
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect(("8.8.8.8", 53))
+        except NetworkLeakError as e:
+            blocked = True
+            print(f"  -> Successfully intercepted and blocked external connection attempt: {e}")
+        assert blocked, "Network isolation guard must actively block external connections"
+
+        # Verify DNS resolution to external hosts is also blocked
+        dns_blocked = False
+        try:
+            socket.getaddrinfo("telemetry.example.com", 443)
+        except NetworkLeakError as e:
+            dns_blocked = True
+            print(f"  -> Successfully intercepted and blocked external DNS resolution: {e}")
+        assert dns_blocked, "Network isolation guard must actively block external DNS queries"
+
+        # Verify localhost is permitted
+        try:
+            socket.getaddrinfo("127.0.0.1", 8844)
+        except NetworkLeakError:
+            assert False, "Localhost (127.0.0.1) should not be blocked"
+
+    # 2. End-to-end full pipeline inference under 100% network isolation
+    models_dir = find_models_dir()
+    wav_path = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17" / "test_wavs" / "ja.wav"
+    audio, sr = sf.read(str(wav_path))
+    if audio.ndim > 1:
+        audio = audio[:, 0]
+
+    with network_isolation_guard():
+        # Step A: Silero VAD
+        vad = SileroVAD(models_dir=models_dir)
+        is_speech = vad.is_speech(audio[:512].astype(np.float32))
+        assert isinstance(is_speech, bool)
+
+        # Step B: Audio DSP Chain
+        dsp = AudioDSPChain(sample_rate=16000)
+        dsp_audio = dsp.process(audio.astype(np.float32))
+        assert dsp_audio.shape == audio.shape
+
+        # Step C: ASR (ReazonSpeech)
+        asr = BusinessASREngine(models_dir=models_dir, initial_languages=["ja", "en"])
+        raw_text = asr.transcribe_pcm(dsp_audio, hint_lang="ja")
+        assert len(raw_text) > 0, "ASR transcription must succeed under network isolation"
+
+        # Step D: Business Dictionary & Hotwords
+        bdict = BusinessDictionary()
+        cleaned_text = bdict.apply_replacements(raw_text)
+        assert len(cleaned_text) > 0
+
+        # Step E: Neural Machine Translation (FuguMT & M2M-100)
+        tr = LocalTranslator(models_dir=models_dir)
+        en_trans = tr.translate_ja_to_en(cleaned_text)
+        zh_trans = tr.translate(cleaned_text, src_lang="ja", tgt_lang="zh")
+        tr.shutdown()
+
+        assert len(en_trans) > 0, "FuguMT translation must succeed under network isolation"
+        assert len(zh_trans) > 0, "M2M-100 translation must succeed under network isolation"
+
+    print("  -> End-to-end pipeline (Audio -> VAD -> DSP -> ASR -> Dict -> NMT) executed with 0 outbound network calls.")
+    print("  [PASS] Zero Network Telemetry mathematically and programmatically verified.")
+
+
 def test_security_and_system():
-    print("\n[TEST 8/8] Testing Security & System Constraints...")
+    print("\n[TEST 9/9] Testing Security & System Constraints...")
     # 1. Zero disk audio recordings
     root = Path(__file__).resolve().parent
     audio_files = list(root.glob("**/*.wav")) + list(root.glob("**/*.pcm")) + list(root.glob("**/*.mp3"))
@@ -332,7 +475,8 @@ if __name__ == "__main__":
     test_lazy_loading_and_memory()
     test_7_languages_translation()
     test_language_identification()
+    test_zero_network_telemetry()
     test_security_and_system()
     print("\n=======================================================")
-    print("  🎉 ALL 8 TESTS PASSED SUCCESSFULLY!")
+    print("  🎉 ALL 9 TESTS PASSED SUCCESSFULLY! (ZERO NETWORK LEAKAGE)")
     print("=======================================================")

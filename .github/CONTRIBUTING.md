@@ -83,14 +83,15 @@ PYTHONIOENCODING="utf-8" .venv/bin/python test_polyglot_suite.py
 ```
 
 ### 検証項目一覧:
-- [TEST 1/8] ビジネス辞書 ＆ Instant Hotwords 抽出・境界保護
-- [TEST 2/8] Silero VAD (音声区間検出)
-- [TEST 3/8] 4段オーディオ DSP チェーン (Noise Gate / Mid-EQ / De-Esser / AGC)
-- [TEST 4/8] 主要 7 言語 (日・英・中・韓・仏・独・西) ASR 音声デコード
-- [TEST 5/8] 遅延ロード (Lazy Loading) ＆ 動的メモリ解放
-- [TEST 6/8] 主要 7 言語 M2M-100 / FuguMT 相互同時翻訳
-- [TEST 7/8] 多言語自動判定 (LID: Language Identification)
-- [TEST 8/8] セキュリティ制約 (録音ファイル非保存、127.0.0.1 バインド、トークン認証、履歴クリア同期)
+- [TEST 1/9] ビジネス辞書 ＆ Instant Hotwords 抽出・境界保護
+- [TEST 2/9] Silero VAD (音声区間検出・ヒステリシス)
+- [TEST 3/9] 4段オーディオ DSP チェーン (Noise Gate / Mid-EQ / De-Esser / AGC)
+- [TEST 4/9] 主要 7 言語 (日・英・中・韓・仏・独・西) ASR 音声デコード (Network Guard)
+- [TEST 5/9] 遅延ロード (Lazy Loading) ＆ 動的メモリ解放
+- [TEST 6/9] 主要 7 言語 M2M-100 / FuguMT 相互同時翻訳 (Network Guard)
+- [TEST 7/9] 多言語自動判定 (LID: Language Identification)
+- [TEST 8/9] 外部通信完全遮断ガード ＆ ゼロテレメトリ機械的検証 (Zero Network Telemetry)
+- [TEST 9/9] セキュリティ制約 (録音ファイル非保存、127.0.0.1 バインド、トークン認証、履歴クリア同期)
 
 ---
 

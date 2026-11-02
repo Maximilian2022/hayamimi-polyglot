@@ -790,3 +790,24 @@
   1. `setup.ps1` を純粋な UTF-8（BOM なし）で再保存し、BOM の混入を完全に排除。
   2. スクリプトの 1 行目に `[CmdletBinding()]` と `param(...)` を配置し、PowerShell 5.1（Windows PowerShell）および PowerShell 7（pwsh）の双方でパーサー解釈が確実に安定する構造に整理。
   3. Windows PowerShell 5.1 上でリモート取得を模擬したスクリプトブロック生成（`[scriptblock]::Create`）テストを実施し、構文エラーなく 100% 正常に解釈・起動されることを実機確認。
+
+
+## 38. 外部通信ゼロ（完全オフライン推論）の機械的自動検証ガード (Network Isolation Guard) の実装
+- **背景・ユーザー相談**:
+  - 「完全オフラインで動作すると謳っているが、勝手にモデルやライブラリがオンライン接続していないかを客観的・技術的にどう証明するか」という課題の提起。
+  - 構造的証明（ONNX/CTranslate2 は静的重み行列であり通信コードを含まない）、動的証明（Wireshark や Windows リソース モニターによる可視化、完全機内モード動作）に加え、テストコード（CI）で機械的・恒久的に保証するアプローチを採用。
+- **実施内容**:
+  1. **低レベルソケット監視・遮断機構の実装 (`network_isolation_guard`)**:
+     - `test_polyglot_suite.py` 内に、Python の低レベルソケット関数群（`socket.connect`, `socket.connect_ex`, `socket.sendto`, `socket.getaddrinfo`, `socket.gethostbyname`）をインターセプトするコンテキストマネージャーを構築。
+     - ローカルループバックアドレス（`127.0.0.1`, `localhost`, `::1`）以外の外部 IP / 外部ホスト名に対する接続や DNS クエリ試行が発生した場合、即座に `NetworkLeakError`（`AssertionError` 派生）を送出して処理をブロック。
+  2. **能動的ブロッキングの健全性テスト**:
+     - 意図的な外部接続（`8.8.8.8:53`）および外部ドメイン（`telemetry.example.com`）の名前解決を試み、ガード機構が漏れなく機能して接続が阻止されることを検証。
+     - ローカルホスト（`127.0.0.1:8844`）への内部通信は正しく許可されることを検証。
+  3. **エンドツーエンド推論パイプラインのゼロネットワーク検証 ([TEST 8/9])**:
+     - 実音声入力 ➔ `SileroVAD`（発話検出） ➔ `AudioDSPChain`（4段音響フィルタ） ➔ `BusinessASREngine`（ReazonSpeech 音声認識） ➔ `BusinessDictionary`（用語補正・SudachiPy 形態素解析） ➔ `LocalTranslator`（FuguMT & M2M-100 マルチキャスト翻訳）の全パイプラインを完全ネットワーク遮断下で実行。
+     - モデル推論および依存ライブラリから外部ネットワークへのアクセスが「0 回（ゼロリーク）」で処理が完結することを機械的に証明。
+  4. **全推論テストへのネットワーク隔離適用 ([TEST 4/9], [TEST 6/9])**:
+     - 7言語 ASR デコードおよび 7言語マルチキャスト翻訳のテストも `network_isolation_guard` の下で実行し、モデルロード時や推論実行時に外部通信が発生しないことを二重検証。
+  5. **テストスイートの全9テスト化とドキュメント整備**:
+     - `test_polyglot_suite.py` を全9テスト構成に再編し、実機で **全9テスト 100% PASS** を確認。
+     - `README.md`、`.github/SECURITY.md`、`.github/CONTRIBUTING.md`、`docs/memory.md` に外部通信ゼロの機械的検証仕様を明記。

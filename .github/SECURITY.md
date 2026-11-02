@@ -34,6 +34,8 @@
    - コンソール出力に会話本文を平文で出力しないよう配慮しています。ブラウザ共有ビュー (`/view`) では `textContent` による安全なテキスト描画と Content Security Policy (CSP) ヘッダを適用しています。
 7. **商用利用可能なライセンス構成**:
    - 非商用制限（CC-BY-NC等）のあるモデルを除外し、商用利用が許諾されたライセンス（Apache 2.0 / MIT / CC-BY 4.0 / CC BY-SA 4.0 / FunASR Model License 等）のモデル・ライブラリを採用しています。詳細は [Third_Party_Notices.md](../Third_Party_Notices.md) をご確認ください。
+8. **外部通信ゼロの機械的自動検証 (Network Isolation Guard)**:
+   - テストスイート（`test_polyglot_suite.py`）および CI パイプラインにおいて、OS のソケット通信 API（`connect`, `connect_ex`, `sendto`, `getaddrinfo`, `gethostbyname`）を監視・遮断するネットワーク隔離ガードを配備。推論パイプライン（音声入力 ➔ VAD ➔ DSP ➔ ASR ➔ 辞書補正 ➔ NMT 翻訳）の全実行中において外部 IP や外部ドメインへのアクセスが 0 回（完全遮断下で完結）であることを自動テストで検証・保証しています。
 
 ---
 

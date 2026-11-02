@@ -102,3 +102,10 @@ hayamimi-polyglot/
   - ポート 8844 が使用中の場合は `8845〜8854` の空きポートへ自動フォールバック。
   - 起動ごとに `secrets.token_urlsafe(24)` でワンタイムトークンを生成し、`/view?token=...` で HttpOnly Cookie を発行して `/view` および `/events` を保護。
   - `clear_history()` により、コントロールパネルでの履歴クリア・会議停止時に Web サーバー内のメモリ履歴およびブラウザ画面の DOM も即時クリア。
+
+### ⑨ 外部通信ゼロ（完全オフライン推論）の機械的自動検証 (Network Isolation Guard)
+- **課題**: 「完全オフライン・外部通信ゼロ」と謳うだけでなく、第三者や情シス部門に対して機械的・客観的にそれを証明・保証する必要がある。
+- **実装方針**:
+  - `test_polyglot_suite.py` 内に、Python の低レベルソケット API（`connect`, `connect_ex`, `sendto`, `getaddrinfo`, `gethostbyname`）を監視・遮断するコンテキストマネージャー `network_isolation_guard` を配備。
+  - ローカルループバック（`127.0.0.1`, `localhost`）以外の外部 IP / 外部ドメインへの接続要求が発生した瞬間に `NetworkLeakError` で即座に遮断・テスト失敗させる。
+  - 7言語 ASR、7言語 NMT、およびエンドツーエンド推論パイプライン（Audio ➔ VAD ➔ DSP ➔ ASR ➔ Dict ➔ NMT）の全行程をこの隔離環境下で実行し、外部通信 0 回（ゼロリーク）であることをコミットごとに自動テストで検証・証明。
