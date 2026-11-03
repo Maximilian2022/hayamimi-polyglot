@@ -30,3 +30,6 @@
   - [x] 7言語ASR、7言語NMT翻訳、およびエンドツーエンド推論パイプライン（Audio ➔ VAD ➔ DSP ➔ ASR ➔ Dict ➔ NMT）全体を完全ネットワーク遮断下で実行し、外部通信 0 回（ゼロリーク）をアサート
   - [x] `test_polyglot_suite.py` を全9テスト構成に拡張し、全テスト 100% PASS を実機確認
   - [x] `README.md`、`SECURITY.md`、`CONTRIBUTING.md` に自動検証仕様を追記
+- [x] **GitHub ブランチ保護ルール設定 (パターンA) & PR #13 安全マージ**
+  - [x] PR #13 (onnxruntime 1.31.1, PySide6-Essentials 6.12.0) の互換性確認・マージ完了
+  - [x] `main` ブランチ保護ルールの適用: 強制プッシュ禁止 (allow_force_pushes=false)、ブランチ削除禁止 (allow_deletions=false)、直接プッシュ許可の軽量安全構成で「Your main branch isn't protected」警告を解消

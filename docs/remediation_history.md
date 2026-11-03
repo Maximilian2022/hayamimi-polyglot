@@ -811,3 +811,22 @@
   5. **テストスイートの全9テスト化とドキュメント整備**:
      - `test_polyglot_suite.py` を全9テスト構成に再編し、実機で **全9テスト 100% PASS** を確認。
      - `README.md`、`.github/SECURITY.md`、`.github/CONTRIBUTING.md`、`docs/memory.md` に外部通信ゼロの機械的検証仕様を明記。
+
+
+## 39. Dependabot PR #13 の安全マージ ＆ GitHub main ブランチ保護ルール (パターンA) の適用
+- **背景・ユーザー要望**:
+  - オープン中の PR #13（依存関係アップデート）の安全性確認およびマージ。
+  - GitHub リポジトリ画面に表示されている「Your main branch isn't protected」警告への対処（ユーザー指示により「パターンA: 直接プッシュ維持・事故防止型」を採用）。
+- **実施内容**:
+  1. **PR #13 の検証とマージ**:
+     - 内容: `onnxruntime` を `1.31.1`、`PySide6-Essentials` を `6.12.0` に引き上げるアップデート。
+     - ローカル環境にて既に同一バージョンで全9テスト（ASR・VAD・DSP・NMT・LID・外部通信完全遮断テスト等）が 100% PASS していることを確認済み。
+     - `gh pr merge 13 --merge --delete-branch` により安全にマージし、ブランチを自動削除。
+  2. **GitHub main ブランチ保護ルールの適用 (パターンA)**:
+     - GitHub REST API を通じて `main` ブランチに以下の保護ルールを配備：
+       - `allow_force_pushes: false`（強制プッシュの禁止）
+       - `allow_deletions: false`（`main` ブランチ削除の禁止）
+       - `required_pull_request_reviews: null`（管理者の直接プッシュ権限は維持）
+     - これにより、誤った `git push -f` やブランチ削除による重大インシデントを防止しつつ、「Your main branch isn't protected」警告バナーを解消。
+  3. **ローカルリポジトリの最新同期**:
+     - `git pull origin main` により、マージされた `requirements.txt` の変更（PR #13）をローカル作業コピーへ同期。

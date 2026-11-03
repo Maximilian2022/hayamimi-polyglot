@@ -109,3 +109,10 @@ hayamimi-polyglot/
   - `test_polyglot_suite.py` 内に、Python の低レベルソケット API（`connect`, `connect_ex`, `sendto`, `getaddrinfo`, `gethostbyname`）を監視・遮断するコンテキストマネージャー `network_isolation_guard` を配備。
   - ローカルループバック（`127.0.0.1`, `localhost`）以外の外部 IP / 外部ドメインへの接続要求が発生した瞬間に `NetworkLeakError` で即座に遮断・テスト失敗させる。
   - 7言語 ASR、7言語 NMT、およびエンドツーエンド推論パイプライン（Audio ➔ VAD ➔ DSP ➔ ASR ➔ Dict ➔ NMT）の全行程をこの隔離環境下で実行し、外部通信 0 回（ゼロリーク）であることをコミットごとに自動テストで検証・証明。
+
+### ⑩ GitHub ブランチ保護ポリシー (パターンA: 軽量事故防止型)
+- **設定内容**:
+  - `allow_force_pushes: false`: `git push --force` による履歴誤上書き・破壊の防止。
+  - `allow_deletions: false`: `main` ブランチの誤削除防止。
+  - `required_pull_request_reviews: null`: 開発・修正の身軽さを損なわないよう、管理者の直接プッシュ権限は維持。
+- これにより GitHub 上の「Your main branch isn't protected」警告を解消しつつ、個人・少数開発での高速なサイクルを両立。
