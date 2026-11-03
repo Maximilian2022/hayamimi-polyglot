@@ -90,6 +90,21 @@
 * **商用利用**: 許諾（Permitted）
 * **著作権表示**: Copyright (c) 2021 Silero Team
 
+### NPU モード用の追加コンポーネント（任意のアドオン）
+NPU アドオン（Intel NPU 向けオプション）には、以下のコンポーネントと、上記モデルの変換物が含まれます。
+
+#### OpenVINO™ Toolkit
+* **提供元**: [Intel Corporation](https://github.com/openvinotoolkit/openvino)
+* **ライセンス**: Apache License 2.0
+* **著作権表示**: Copyright (C) Intel Corporation
+* **備考**: 同梱の実行ファイル（.dll / .pyd）は Intel Corporation の電子署名付きです。
+
+#### NPU 向けに変換したモデル
+NPU（固定長入力・fp16）で動作させるため、上記モデルを OpenVINO IR 形式へ変換しています。モデル名・提供元・ライセンスは上記の各項目と同一です。
+* **SenseVoice Small**: FunASR Model Open Source License Agreement に従い、モデル名（SenseVoice）と提供元（Alibaba Group / FunASR）を保持しています。変更点: 入力長の固定、fp16 化、LayerNorm 入力の等価なスケーリング（出力は数学的に不変。fp16 での桁あふれ防止のため）。
+* **ReazonSpeech**: Apache License 2.0。変更点: 入力長の固定、fp16 化（エンコーダ）、OpenVINO IR 形式への変換。
+* **NVIDIA Parakeet TDT 0.6B v3**: CC-BY-4.0。原モデル © NVIDIA Corporation。OpenVINO IR への変換物は [FluidInference/parakeet-tdt-0.6b-v3-ov](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-ov)（同じく CC-BY-4.0）を、無改変のまま利用しています。
+
 ---
 
 ## 3. 主要オープンソースライブラリ・ランタイム

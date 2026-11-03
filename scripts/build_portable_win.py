@@ -213,6 +213,21 @@ def main() -> None:
         else:
             shutil.copy2(src, dst)
 
+    # addons/ is where users drop the optional NPU add-on ZIPs (extracted automatically on next start)
+    addons_dir = PKG_DIR / "addons"
+    addons_dir.mkdir(exist_ok=True)
+    (addons_dir / "README.txt").write_text(
+        "NPU アドオン置き場\r\n"
+        "==================\r\n"
+        "Intel NPU (Core Ultra) 搭載 PC で NPU モードを使う場合は、\r\n"
+        "配布ページからダウンロードした次の ZIP を、解凍せずにこのフォルダへ入れてください。\r\n"
+        "  hayamimi-polyglot-npu-addon-core-*.zip   日本語・中国語・韓国語\r\n"
+        "  hayamimi-polyglot-npu-addon-euro-*.zip   英語・フランス語・ドイツ語・スペイン語\r\n"
+        "次回の起動時に自動で展開されます（展開後に ZIP は削除されます）。\r\n"
+        "NPU を使わない場合は何もする必要はありません（従来どおり CPU で動作します）。\r\n",
+        encoding="utf-8",
+    )
+
     # Remove any temporary session_hotwords.txt if present
     (PKG_DIR / "dicts" / "session_hotwords.txt").unlink(missing_ok=True)
 

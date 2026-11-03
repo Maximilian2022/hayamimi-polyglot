@@ -143,6 +143,34 @@ chmod +x start.sh
 
 ---
 
+### 4. （任意）Intel NPU モード — Windows / Intel Core Ultra 搭載 PC 向け
+
+Intel NPU（Intel AI Boost）を搭載した PC では、音声認識を NPU に任せて **CPU の負荷を下げる** ことができます。
+Teams / Zoom などと並行して使うときに、CPU をより空けておけます。**NPU 非搭載の PC では何も変わりません**（従来どおり CPU で動作します）。
+
+* 対応: Windows 11 + Intel NPU のみ（AMD NPU / Mac には対応していません）。7 言語（日・英・中・韓・仏・独・西）すべてで利用できます。
+* 既定は **CPU モード** です。NPU は選んだときだけ使われます。
+* NPU の準備ができるまでは CPU で動き、準備ができ次第、自動で NPU に切り替わります。何らかの問題があれば自動的に CPU のままで動作を続けます。
+
+**導入手順（ZIP を入れるだけ）**
+1. [Releases](https://github.com/Maximilian2022/hayamimi-polyglot/releases) から NPU アドオンの ZIP をダウンロードします。
+   * `hayamimi-polyglot-npu-addon-core-*.zip` … 日本語・中国語・韓国語（約 0.7GB）
+   * `hayamimi-polyglot-npu-addon-euro-*.zip` … 英語・フランス語・ドイツ語・スペイン語（約 1.2GB）
+2. **解凍せずに**、アプリフォルダの `addons` フォルダへ入れます（ポータブル版には最初から `addons` フォルダがあります）。
+3. アプリを起動します。次回起動時に自動で展開されます（展開後、ZIP は自動で削除されます）。
+4. コントロールパネルの「🧠 推論デバイス」で **NPU（Intel AI Boost）** を選び、アプリを再起動します。NPU が使える環境でだけこの項目が表示されます。
+
+ワンライナーセットアップで入れる場合は `setup.ps1 -WithNpu` で ZIP を自動取得できます。
+
+> [!NOTE]
+> * 安全のため、NPU アドオンは **アプリ本体に登録された署名・ハッシュと一致するものだけ** が展開されます。
+> * アドオンに含まれる実行ファイルはすべて Intel の電子署名付きです。Smart App Control が有効な環境でも動作します。署名を確認できない場合は NPU を無効にして CPU で起動します。
+> * 初回のみ NPU 用の準備（最大数分）が行われます。その間も CPU で通常どおりご利用いただけます。
+> * 韓国語は NPU モードで語間のスペースが CPU モードと少し異なる場合があります。
+> * 元に戻すには、`addons` フォルダ内の `packages` と、`models/npu` を削除してください。
+
+---
+
 ## 📄 ライセンス & 謝辞 (Credits)
 
 - **ベースプロジェクト**: [oboroge0/hayamimi](https://github.com/oboroge0/hayamimi) (MIT License) - 原案・基礎設計に深く感謝いたします。

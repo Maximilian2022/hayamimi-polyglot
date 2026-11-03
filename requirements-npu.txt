@@ -1,0 +1,14 @@
+# Intel NPU add-on - developer / release-build requirements (Windows only).
+#
+# END USERS DO NOT INSTALL THESE. The add-on ZIPs (addons/) already contain OpenVINO and the models;
+# the normal requirements.txt is unchanged and CPU mode never needs any of this.
+#
+# Used by:
+#   scripts/build_npu_models.py   (onnx + openvino: convert models to fixed-shape fp16 OpenVINO IR)
+#   scripts/build_npu_addon.py    (stdlib only; packages the ZIPs and checks Authenticode signatures)
+#   python -m pip install --no-deps --target addons/packages openvino==2026.4.1   (runtime for local testing)
+#
+# Smart App Control: only OpenVINO's own binaries are shipped, and every one of them is signed by Intel.
+# Do not add other packages with native extensions to the add-on without checking their signatures.
+openvino==2026.4.1
+onnx>=1.17

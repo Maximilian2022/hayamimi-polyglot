@@ -366,6 +366,54 @@ def _read_initial_config() -> tuple[List[str], bool]:
     return langs, high_acc
 
 
+def _read_device_config() -> str:
+    """Inference device from --device (wins) or config.json asr.device. Defaults to CPU."""
+    if "--device" in sys.argv:
+        i = sys.argv.index("--device")
+        if i + 1 < len(sys.argv) and sys.argv[i + 1] in ("cpu", "npu"):
+            return sys.argv[i + 1]
+    for arg in sys.argv:
+        if arg in ("--device=cpu", "--device=npu"):
+            return arg.split("=", 1)[1]
+    cfg_path = _HERE / "config.json"
+    if not cfg_path.is_file():
+        cfg_path = _HERE / "config.default.json"
+    try:
+        with open(cfg_path, "r", encoding="utf-8") as f:
+            dev = str(json.load(f).get("asr", {}).get("device", "cpu"))
+        return dev if dev in ("cpu", "npu") else "cpu"
+    except Exception:
+        return "cpu"
+
+
+def _start_npu_state_probe(panel, info_lines: list) -> None:
+    """Tell the UI whether an NPU can really be used (after the add-on installer has finished)."""
+    if sys.platform != "win32":
+        return
+
+    def work():
+        try:
+            from core.npu import addons, device, parakeet, reazon, sensevoice
+
+            panel.npu_info.emit("NPU アドオンを展開しています…" if addons.STATE.running else "")
+            addons.wait_until_ready()
+            for line in list(info_lines):
+                panel.npu_info.emit(line)
+            if not info_lines:
+                panel.npu_info.emit("")
+            info = device.probe()
+            has_models = any(m.model_files_present() for m in (reazon, parakeet, sensevoice))
+            if addons.STATE.signature_error:
+                panel.status_warning.emit(addons.STATE.signature_error)
+            panel.npu_state_ready.emit(bool(info.available and has_models), info.name)
+            if not info.available:
+                print(f"[Init] NPU unavailable: {info.reason}")
+        except Exception as exc:
+            print(f"[Init] NPU probe failed: {exc}")
+
+    threading.Thread(target=work, daemon=True, name="NpuProbe").start()
+
+
 def main():
     if platform.system() == "Windows":
         try:
@@ -387,6 +435,22 @@ def main():
     print(f"[Init] Using Models Directory: {models_dir}")
 
     initial_langs, initial_high_acc = _read_initial_config()
+    device = _read_device_config()
+
+    # Optional NPU add-on: extract anything dropped into addons/ (background, never blocks CPU mode).
+    # The add-on installer runs before OpenVINO is ever imported.
+    npu_info_lines: list[str] = []
+    if sys.platform == "win32":
+        try:
+            from core.npu import addons as npu_addons
+
+            npu_addons.activate_paths()
+            npu_addons.run_startup(
+                on_done=lambda res: npu_info_lines.extend(r.message for r in res if r.status in ("installed", "error")),
+            )
+        except Exception as exc:
+            print(f"[Init] NPU add-on startup skipped: {exc}")
+    print(f"[Init] Inference device: {device.upper()}")
 
     print("[Init] Loading Business Dictionary...")
     dictionary = BusinessDictionary()
@@ -407,6 +471,7 @@ def main():
         initial_languages=initial_langs,
         high_accuracy_mode=initial_high_acc,
         dictionary=dictionary,
+        device=device,
     )
 
     print("[Init] Loading Local Translator...")
@@ -419,6 +484,8 @@ def main():
     overlay = OverlayWindow()
     panel = ControlPanel(overlay=overlay)
     panel.browser_url_provider = web_server.get_view_url
+    panel.device_summary_provider = asr_engine.get_device_summary
+    _start_npu_state_probe(panel, npu_info_lines)
     tray = SystemTrayApp(panel=panel)
 
     if vad_self is None or not asr_engine.has_any_model():

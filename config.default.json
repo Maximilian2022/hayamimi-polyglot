@@ -1,6 +1,6 @@
 {
   "app_name": "Hayamimi Polyglot",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "network": {
     "host": "127.0.0.1",
     "port": 8844,
@@ -16,7 +16,8 @@
     "model": "ReazonSpeech + Parakeet TDT v3 + SenseVoice",
     "high_accuracy_mode": true,
     "threads": 2,
-    "vad_threshold": 0.45
+    "vad_threshold": 0.45,
+    "device": "cpu"
   },
   "translation": {
     "default_languages": [
