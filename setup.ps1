@@ -4,6 +4,7 @@ param(
     [switch]$Unattended,
     [switch]$WithParakeet,
     [switch]$WithSenseVoice,
+    [switch]$WithNpu,
     [string]$InstallPath = ""
 )
 
@@ -146,6 +147,15 @@ $dlScript = Join-Path $targetDir "scripts\download_models.py"
 if (Test-Path $dlScript) {
     Write-Host "⬇️ 必須 AI モデルを確認・取得中..." -ForegroundColor Cyan
     & $pyExe $dlScript --models-dir (Join-Path $targetDir "models")
+}
+
+# Optional: Intel NPU add-on (ZIPs are dropped into addons\ and extracted by the app on its next start)
+if ($WithNpu) {
+    $npuScript = Join-Path $targetDir "scripts\fetch_npu_addon.py"
+    if (Test-Path $npuScript) {
+        Write-Host "⬇️ NPU アドオンを取得中（初回のみ・約 1.8GB）..." -ForegroundColor Cyan
+        & $pyExe $npuScript
+    }
 }
 
 Write-Host "=======================================================" -ForegroundColor Cyan

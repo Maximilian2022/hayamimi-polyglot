@@ -16,7 +16,8 @@
     "model": "ReazonSpeech + Parakeet TDT v3 + SenseVoice",
     "high_accuracy_mode": true,
     "threads": 2,
-    "vad_threshold": 0.45
+    "vad_threshold": 0.45,
+    "device": "cpu"
   },
   "translation": {
     "default_languages": [

@@ -1,0 +1,12 @@
+{
+  "npu-addon-core-1.0.0": {
+    "manifest_sha256": "cec9831e64ba4d22bce9cb8263d18eb2fc6e102e40034a83938b0fb3b51960a5",
+    "zip": "hayamimi-polyglot-npu-addon-core-1.0.0-windows.zip",
+    "zip_sha256": "9abeab8cdb0864af435104a7888f1e72a4262db208d49f55c37651f2c6a47b9a"
+  },
+  "npu-addon-euro-1.0.0": {
+    "manifest_sha256": "b6826fcd5602f8344f33f92add721eed9576d9114953647fd2f404fb58f551e7",
+    "zip": "hayamimi-polyglot-npu-addon-euro-1.0.0-windows.zip",
+    "zip_sha256": "4443a9b6fa8e66ea660ad0c2d9b6e5443fa3edae9cb2a02f3b7eb14075ff1602"
+  }
+}

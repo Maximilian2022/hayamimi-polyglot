@@ -52,3 +52,7 @@ build_mac_portable/
 build_test_*/
 dist_builder*.py
 hayamimi-polyglot-*.zip
+
+# NPU add-on (local runtime data)
+/addons/
+/cache/

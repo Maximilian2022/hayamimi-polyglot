@@ -106,6 +106,9 @@ class ControlPanel(QtWidgets.QWidget):
     high_accuracy_toggled = Signal(bool)
     update_available = Signal(str)
     status_warning = Signal(str)
+    device_changed = Signal(str)  # "cpu" | "npu" (takes effect on the next start)
+    npu_state_ready = Signal(bool, str)  # (NPU usable, human readable detail)
+    npu_info = Signal(str)  # add-on installation progress / result line
 
     def __init__(self, overlay: OverlayWindow, parent=None):
         super().__init__(parent)
@@ -118,6 +121,8 @@ class ControlPanel(QtWidgets.QWidget):
         self._drag_pos = QPoint()
         self._loading_settings: bool = False
         self.browser_url_provider: Optional[Callable[[], str]] = None
+        self.device_summary_provider: Optional[Callable[[], Dict[str, str]]] = None
+        self._device_pref: str = "cpu"
 
         self._save_timer = QtCore.QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -128,6 +133,13 @@ class ControlPanel(QtWidgets.QWidget):
         self.update_app_icon(False)
         self.update_available.connect(self._on_update_available)
         self.status_warning.connect(self._on_status_warning)
+        self.npu_state_ready.connect(self._on_npu_state_ready)
+        self.npu_info.connect(self._on_npu_info)
+
+        self._device_timer = QtCore.QTimer(self)
+        self._device_timer.setInterval(2000)
+        self._device_timer.timeout.connect(self._refresh_device_summary)
+        self._device_timer.start()
 
     def init_ui(self):
         self.setWindowTitle("Hayamimi Polyglot - コントロールパネル")
@@ -318,6 +330,36 @@ class ControlPanel(QtWidgets.QWidget):
         self.chk_high_acc.toggled.connect(self.on_high_accuracy_toggled)
         row_asr.addWidget(self.chk_high_acc)
         settings_layout.addLayout(row_asr)
+
+        # Inference device (CPU / Intel NPU). The row only appears when an NPU is really usable.
+        self.row_device_widget = QtWidgets.QWidget()
+        row_device = QtWidgets.QHBoxLayout(self.row_device_widget)
+        row_device.setContentsMargins(0, 0, 0, 0)
+        lbl_device = QtWidgets.QLabel("🧠 推論デバイス:")
+        lbl_device.setStyleSheet("font-weight: bold;")
+        row_device.addWidget(lbl_device)
+        self.combo_device = QtWidgets.QComboBox()
+        self.combo_device.addItem("CPU（標準）", "cpu")
+        self.combo_device.addItem("NPU（Intel AI Boost）", "npu")
+        self.combo_device.setToolTip(
+            "NPU を選ぶと音声認識を NPU に任せ、CPU の負荷を下げます。\n"
+            "NPU の準備が整うまでは CPU で動作し、準備ができ次第自動で切り替わります。\n"
+            "設定の変更は次回の起動から反映されます。"
+        )
+        self.combo_device.currentIndexChanged.connect(self.on_device_changed)
+        row_device.addWidget(self.combo_device)
+        self.lbl_device_status = QtWidgets.QLabel("")
+        self.lbl_device_status.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        self.lbl_device_status.setWordWrap(True)
+        row_device.addWidget(self.lbl_device_status, 1)
+        self.row_device_widget.setVisible(False)
+        settings_layout.addWidget(self.row_device_widget)
+
+        self.lbl_npu_info = QtWidgets.QLabel("")
+        self.lbl_npu_info.setStyleSheet("color: #94A3B8; font-size: 11px;")
+        self.lbl_npu_info.setWordWrap(True)
+        self.lbl_npu_info.setVisible(False)
+        settings_layout.addWidget(self.lbl_npu_info)
 
         # Multicast Translation Languages (Max 5)
         trans_header = QtWidgets.QHBoxLayout()
@@ -710,6 +752,11 @@ class ControlPanel(QtWidgets.QWidget):
             # Saved High Accuracy Mode
             high_acc = cfg.get("asr", {}).get("high_accuracy_mode", True)
             self.chk_high_acc.setChecked(bool(high_acc))
+
+            saved_device = str(cfg.get("asr", {}).get("device", "cpu"))
+            self._device_pref = saved_device if saved_device in ("cpu", "npu") else "cpu"
+            idx = self.combo_device.findData(self._device_pref)
+            self.combo_device.setCurrentIndex(max(idx, 0))
         except Exception as e:
             print(f"[Config] Error loading settings: {e}")
         finally:
@@ -743,6 +790,7 @@ class ControlPanel(QtWidgets.QWidget):
 
             asr_cfg = cfg.setdefault("asr", {})
             asr_cfg["high_accuracy_mode"] = self.chk_high_acc.isChecked()
+            asr_cfg["device"] = self._device_pref
 
             tmp_path = _CONFIG_PATH.with_suffix(".json.tmp")
             with open(tmp_path, "w", encoding="utf-8") as f:
@@ -750,6 +798,47 @@ class ControlPanel(QtWidgets.QWidget):
             os.replace(tmp_path, _CONFIG_PATH)
         except Exception as e:
             print(f"[Config] Error saving settings: {e}")
+
+    def on_device_changed(self, _index: int):
+        if getattr(self, "_loading_settings", False):
+            return
+        self._device_pref = str(self.combo_device.currentData() or "cpu")
+        self.device_changed.emit(self._device_pref)
+        self.lbl_device_status.setText("次回の起動から反映されます")
+        self.save_settings()
+
+    def _on_npu_state_ready(self, usable: bool, detail: str):
+        """NPU shown only if it is genuinely usable (hardware + driver + add-on + models)."""
+        self.row_device_widget.setVisible(bool(usable))
+        if usable:
+            self.combo_device.setToolTip(self.combo_device.toolTip() + f"\n検出: {detail}")
+            self._refresh_device_summary()
+
+    def _on_npu_info(self, text: str):
+        self.lbl_npu_info.setText(text)
+        self.lbl_npu_info.setVisible(bool(text))
+
+    def _refresh_device_summary(self):
+        if not self.row_device_widget.isVisible() or self.device_summary_provider is None:
+            return
+        try:
+            summary = self.device_summary_provider() or {}
+        except Exception:
+            return
+        if not summary:
+            return
+        names = {"reazon": "日本語", "parakeet": "英・仏・独・西", "sensevoice": "中・韓"}
+        parts = []
+        for key, state in summary.items():
+            label = names.get(key, key)
+            if state == "npu":
+                parts.append(f"{label}: NPU")
+            elif "準備中" in state or "compiling" in state:
+                parts.append(f"{label}: CPU（NPU 準備中…）")
+            else:
+                parts.append(f"{label}: CPU")
+        if self._device_pref == "npu":
+            self.lbl_device_status.setText(" / ".join(parts))
 
     def on_high_accuracy_toggled(self, checked: bool):
         self.high_accuracy_toggled.emit(checked)

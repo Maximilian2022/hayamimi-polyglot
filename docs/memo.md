@@ -33,3 +33,14 @@
 - [x] **GitHub ブランチ保護ルール設定 (パターンA) & PR #13 安全マージ**
   - [x] PR #13 (onnxruntime 1.31.1, PySide6-Essentials 6.12.0) の互換性確認・マージ完了
   - [x] `main` ブランチ保護ルールの適用: 強制プッシュ禁止 (allow_force_pushes=false)、ブランチ削除禁止 (allow_deletions=false)、直接プッシュ許可の軽量安全構成で「Your main branch isn't protected」警告を解消
+
+## NPU モード（Intel NPU / Windows 専用）— feature/npu-mode
+- [x] PoC: 全 ASR エンジン（ReazonSpeech / Parakeet v3 / SenseVoice）が Intel NPU で CPU 版と同等精度（FLEURS 各言語 40〜58 本、差は ±1.4pt 以内）
+- [x] SenseVoice の fp16 桁あふれ（LayerNorm の `Pow`）を入力スケーリングで解決（zh CER 20.9% → 6.6%）
+- [x] `core/npu/`（NumPy 前処理・3 エンジン・アドオン自動展開・署名検証）と `asr_engine.py` への CPU 先行 → NPU 切り替え
+- [x] ZIP を `addons/` に入れるだけで次回起動時に自動展開（manifest ハッシュ固定・zip-slip 防止・署名検証・SAC 対策）
+- [x] コントロールパネルの推論デバイス欄、`--device`、`config.asr.device`、`setup.ps1 -WithNpu`
+- [x] `scripts/build_npu_models.py` / `build_npu_addon.py` / `fetch_npu_addon.py` / `eval_npu.py`、`test_npu_suite.py`
+- [ ] 他世代 NPU（Meteor Lake / Lunar Lake）での実機検証（検証は Arrow Lake のみ）
+- [ ] Teams 等と同時使用時の NPU 競合・遅延の実測
+- 詳細: `docs/npu_design.md`（末尾に実装での確定事項とリリース手順）

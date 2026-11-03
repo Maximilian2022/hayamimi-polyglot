@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gc
 import re
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
@@ -47,6 +48,8 @@ class BusinessASREngine:
         initial_languages: Optional[List[str]] = None,
         high_accuracy_mode: bool = True,
         dictionary: Optional[BusinessDictionary] = None,
+        device: str = "cpu",
+        npu_cpu_first: bool = True,
     ):
         if models_dir is None:
             candidates = [
@@ -63,6 +66,15 @@ class BusinessASREngine:
         self.threads = threads
         self.hotwords_file = Path(hotwords_file) if hotwords_file else None
         self._high_accuracy_mode: bool = high_accuracy_mode
+
+        # Inference device. "cpu" is the default and behaves exactly as before.
+        # "npu" (Intel NPU, Windows): every engine starts on CPU and is swapped to its NPU build
+        # once that has been compiled; any problem leaves the engine on CPU (see core/npu).
+        self.device: str = device if device in ("cpu", "npu") else "cpu"
+        self.npu_cpu_first: bool = npu_cpu_first
+        self.device_status: Dict[str, str] = {}
+        self._npu_lock = threading.Lock()
+        self._npu_gen: Dict[str, int] = {"reazon": 0, "parakeet": 0, "sensevoice": 0}
 
         # Recognizer slots (loaded lazily on demand)
         self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & ja/en probe)
@@ -162,10 +174,13 @@ class BusinessASREngine:
         """Initialize sherpa-onnx with ReazonSpeech INT8 model for Japanese."""
         if self.recognizer is not None:
             return
+        if self._try_npu_sync("reazon", "recognizer"):
+            return
         rec = self._create_reazon_recognizer()
         if rec is not None:
             self.recognizer = rec
             print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese)")
+            self._upgrade_to_npu("reazon", "recognizer")
 
     def _init_parakeet(self) -> None:
         """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European languages)."""
@@ -183,6 +198,9 @@ class BusinessASREngine:
             if c.is_dir():
                 p_dir = c
                 break
+
+        if self._try_npu_sync("parakeet", "parakeet_recognizer"):
+            return
 
         if not p_dir:
             print("[ASR] Parakeet TDT model directory not found.")
@@ -207,11 +225,14 @@ class BusinessASREngine:
                 decoding_method="greedy_search",
             )
             print(f"[ASR] [Loaded] Parakeet TDT 0.6B ({p_dir.name}) for English & European languages.")
+            self._upgrade_to_npu("parakeet", "parakeet_recognizer")
         except Exception as exc:
             print(f"[ASR] Failed to initialize Parakeet recognizer: {exc}")
 
     def _unload_parakeet(self) -> None:
         """Release Parakeet recognizer from RAM."""
+        self._npu_gen["parakeet"] += 1
+        self.device_status.pop("parakeet", None)
         if self.parakeet_recognizer is not None:
             self.parakeet_recognizer = None
             gc.collect()
@@ -220,6 +241,9 @@ class BusinessASREngine:
     def _init_sense_voice(self) -> None:
         """Initialize SenseVoice Small for Asian languages (Chinese, Korean)."""
         if self.sense_voice_recognizer is not None:
+            return
+
+        if self._try_npu_sync("sensevoice", "sense_voice_recognizer"):
             return
 
         sv_dir = self.models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
@@ -241,15 +265,89 @@ class BusinessASREngine:
                 use_itn=True,
             )
             print("[ASR] [Loaded] SenseVoice Small for Asian multilingual ASR.")
+            self._upgrade_to_npu("sensevoice", "sense_voice_recognizer")
         except Exception as exc:
             print(f"[ASR] Failed to initialize SenseVoice recognizer: {exc}")
 
     def _unload_sense_voice(self) -> None:
         """Release SenseVoice recognizer from RAM."""
+        self._npu_gen["sensevoice"] += 1
+        self.device_status.pop("sensevoice", None)
         if self.sense_voice_recognizer is not None:
             self.sense_voice_recognizer = None
             gc.collect()
             print("[ASR] [Unloaded] SenseVoice Small (freed RAM)")
+
+    # --------------------------------------------------------------------------
+    # NPU (Intel AI Boost) support - optional, opt-in, always falls back to CPU
+    # --------------------------------------------------------------------------
+    def _npu_factory(self, key: str):
+        """Return (model_files_present, recognizer_class) for an engine key, importing lazily."""
+        from core.npu import parakeet, reazon, sensevoice
+
+        return {
+            "reazon": (reazon.model_files_present, reazon.ReazonNpuRecognizer),
+            "parakeet": (parakeet.model_files_present, parakeet.ParakeetNpuRecognizer),
+            "sensevoice": (sensevoice.model_files_present, sensevoice.SenseVoiceNpuRecognizer),
+        }[key]
+
+    def _build_npu(self, key: str):
+        """Build the NPU recognizer for `key`. Returns (recognizer | None, reason)."""
+        try:
+            from core.npu import addons, device
+
+            addons.wait_until_ready()
+            info = device.probe()
+            if not info.available:
+                return None, info.reason
+            present, cls = self._npu_factory(key)
+            if not present(self.models_dir):
+                return None, "NPU 用モデルが未導入です"
+            return cls(self.models_dir), ""
+        except Exception as exc:  # compile failures, driver problems, blocked DLLs ...
+            return None, f"{type(exc).__name__}: {exc}"
+
+    def _try_npu_sync(self, key: str, attr: str) -> bool:
+        """NPU-first loading (only when npu_cpu_first is disabled). True if the NPU engine is in place."""
+        if self.device != "npu" or self.npu_cpu_first:
+            return False
+        self.device_status[key] = "npu-compiling"
+        rec, reason = self._build_npu(key)
+        if rec is None:
+            self.device_status[key] = f"cpu ({reason})"
+            print(f"[ASR:NPU] {key}: CPU を使用します - {reason}")
+            return False
+        setattr(self, attr, rec)
+        self.device_status[key] = "npu"
+        print(f"[ASR:NPU] [Loaded] {key} on NPU")
+        return True
+
+    def _upgrade_to_npu(self, key: str, attr: str) -> None:
+        """CPU-first: keep working on CPU, compile the NPU build in the background, then swap."""
+        if self.device != "npu" or not self.npu_cpu_first:
+            return
+        gen = self._npu_gen[key]
+        self.device_status[key] = "cpu (NPU を準備中)"
+
+        def work():
+            rec, reason = self._build_npu(key)
+            with self._npu_lock:
+                if self._npu_gen[key] != gen or getattr(self, attr) is None:
+                    return  # the engine was unloaded / replaced while compiling
+                if rec is None:
+                    self.device_status[key] = f"cpu ({reason})"
+                    print(f"[ASR:NPU] {key}: CPU のまま継続します - {reason}")
+                    return
+                setattr(self, attr, rec)  # atomic swap; in-flight CPU decodes finish on the old object
+                self.device_status[key] = "npu"
+            gc.collect()
+            print(f"[ASR:NPU] [Switched] {key} now runs on the NPU")
+
+        threading.Thread(target=work, daemon=True, name=f"NpuUpgrade-{key}").start()
+
+    def get_device_summary(self) -> Dict[str, str]:
+        """Per-engine device state for the UI: e.g. {'reazon': 'npu', 'parakeet': 'cpu (...)'}."""
+        return dict(self.device_status)
 
     def update_hotwords(self, hotwords_file: Optional[Path | str] = None) -> None:
         """
