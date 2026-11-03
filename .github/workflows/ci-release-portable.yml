@@ -128,12 +128,6 @@ jobs:
           uv run python scripts/download_models.py
         shell: bash
 
-      - name: NPU Mode Tests (hardware-independent; real-NPU checks skip themselves)
-        if: runner.os == 'Windows'
-        run: |
-          uv run --python 3.14 python test_npu_suite.py
-        shell: bash
-
       - name: Build & Run Headless Verification Smoke Test
         run: |
           uv run --python 3.14 python ${{ matrix.build_script }}

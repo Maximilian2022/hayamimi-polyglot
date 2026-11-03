@@ -193,11 +193,21 @@ def main() -> int:
     ap.add_argument("--with-parakeet", action="store_true")
     args = ap.parse_args()
     todo = [args.only] if args.only else ["reazon", "sensevoice"] + (["parakeet"] if args.with_parakeet else [])
-    if "reazon" in todo:
+    if len(todo) > 1:
+        # OpenVINO numbers its nodes with a process-wide counter, so each model is built in its own
+        # fresh process. That keeps the generated files byte-identical between runs and machines,
+        # which the add-on's pinned manifest hash (core/npu/addons_known.json) depends on.
+        import subprocess
+
+        for name in todo:
+            subprocess.run([sys.executable, str(Path(__file__).resolve()), "--out", str(args.out), "--only", name], check=True)
+        return 0
+    name = todo[0]
+    if name == "reazon":
         build_reazon(args.out)
-    if "sensevoice" in todo:
+    elif name == "sensevoice":
         build_sensevoice(args.out)
-    if "parakeet" in todo:
+    else:
         fetch_parakeet(args.out)
     return 0
 

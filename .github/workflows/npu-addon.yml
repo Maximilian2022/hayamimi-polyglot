@@ -1,0 +1,161 @@
+name: NPU Add-on (test, build & release)
+
+# Windows-only optional Intel NPU add-on (docs/npu_design.md).
+#  * pull_request : run the hardware-independent NPU tests, build the add-on and verify that it matches the
+#                   hashes pinned in core/npu/addons_known.json (no upload).
+#  * push to main : the same, then attach the two add-on ZIPs to the GitHub release of version.txt.
+#  * dispatch     : manual; tick "upload" to attach the ZIPs to the release.
+# CI has no NPU, so the real-NPU tests skip themselves; run test_npu_suite.py on an Intel NPU machine before releasing.
+
+on:
+  pull_request:
+    paths:
+      - 'core/npu/**'
+      - 'core/asr_engine.py'
+      - 'scripts/build_npu_models.py'
+      - 'scripts/build_npu_addon.py'
+      - 'scripts/fetch_npu_addon.py'
+      - 'scripts/eval_npu.py'
+      - 'test_npu_suite.py'
+      - 'tests_data/**'
+      - 'requirements-npu.txt'
+      - 'version.txt'
+      - '.github/workflows/npu-addon.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'core/npu/**'
+      - 'core/asr_engine.py'
+      - 'scripts/build_npu_models.py'
+      - 'scripts/build_npu_addon.py'
+      - 'scripts/fetch_npu_addon.py'
+      - 'scripts/eval_npu.py'
+      - 'test_npu_suite.py'
+      - 'tests_data/**'
+      - 'requirements-npu.txt'
+      - 'version.txt'
+      - '.github/workflows/npu-addon.yml'
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Attach the built ZIPs to the release of version.txt'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npu-addon-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENVINO_VERSION: '2026.4.1'
+
+jobs:
+  npu-tests:
+    name: NPU mode tests (no NPU required)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        shell: pwsh
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+          $uvDir = Join-Path $env:USERPROFILE ".local\bin"
+          $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Cache or Fetch AI Models
+        uses: actions/cache@v6
+        with:
+          path: models
+          key: models-int8-full-v1
+
+      - name: Ensure Complete AI Models
+        shell: bash
+        run: uv run python scripts/download_models.py
+
+      - name: Create test environment
+        shell: pwsh
+        run: |
+          uv venv --python 3.14 .venv
+          uv pip install -r requirements.txt --python .venv\Scripts\python.exe
+
+      - name: Run NPU mode tests
+        shell: pwsh
+        run: .venv\Scripts\python.exe test_npu_suite.py
+
+      - name: Run the main test suite (CPU mode must be unchanged)
+        shell: pwsh
+        run: .venv\Scripts\python.exe test_polyglot_suite.py
+
+  build-addon:
+    name: Build NPU add-on & verify pins
+    needs: npu-tests
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        shell: pwsh
+        run: |
+          irm https://astral.sh/uv/install.ps1 | iex
+          $uvDir = Join-Path $env:USERPROFILE ".local\bin"
+          $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Cache or Fetch AI Models
+        uses: actions/cache@v6
+        with:
+          path: models
+          key: models-int8-full-v1
+
+      - name: Ensure Complete AI Models (fp32 sources are inside the official archives)
+        shell: bash
+        run: uv run python scripts/download_models.py
+
+      - name: Convert models to fixed-shape fp16 OpenVINO IR
+        shell: bash
+        run: |
+          uv run --python 3.14 --with onnx --with "openvino==${OPENVINO_VERSION}" --with numpy \
+            python scripts/build_npu_models.py --out models/npu --with-parakeet
+
+      - name: Install the OpenVINO runtime that the add-on ships
+        shell: bash
+        run: |
+          uv pip install --no-deps --python 3.14 --target addons/packages "openvino==${OPENVINO_VERSION}"
+          ls addons/packages
+
+      - name: Package add-on ZIPs (checks Authenticode signatures) and verify pinned hashes
+        shell: bash
+        run: uv run --python 3.14 python scripts/build_npu_addon.py --check --out dist
+
+      - name: Upload add-on ZIPs as a build artifact (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: npu-addon-zips
+          path: dist/*.zip
+          retention-days: 3
+          compression-level: 0
+
+      - name: Attach add-on ZIPs to the GitHub release
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.upload)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(cat version.txt | tr -d ' \r\n')
+          TAG="v${VER}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "Hayamimi Polyglot $TAG" --generate-notes || true
+          fi
+          for f in dist/*.zip; do
+            echo "Uploading $f to release $TAG ..."
+            gh release upload "$TAG" "$f" --clobber
+          done

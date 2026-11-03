@@ -17,7 +17,7 @@ Safety rules enforced here (docs/npu_design.md section 8.5, Windows Smart App Co
 Typical use:
     python scripts/build_npu_models.py --out models/npu --with-parakeet
     python -m pip install --no-deps --target addons/packages openvino==2026.4.1   # same Python as the app
-    python scripts/build_npu_addon.py --addon-version 1.0.0
+    python scripts/build_npu_addon.py        # version comes from core/npu/addon_version.txt
 """
 
 from __future__ import annotations
@@ -131,7 +131,10 @@ def update_known(entries: Dict[str, dict]) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--addon-version", required=True, help="add-on version, e.g. 1.0.0")
+    ap.add_argument("--addon-version", default=(ROOT / "core" / "npu" / "addon_version.txt").read_text(encoding="utf-8").strip(),
+                    help="add-on version (default: core/npu/addon_version.txt)")
+    ap.add_argument("--check", action="store_true",
+                    help="CI mode: do not touch addons_known.json; fail if the built manifests differ from the pinned ones")
     ap.add_argument("--min-app-version", default=(ROOT / "version.txt").read_text(encoding="utf-8").strip().lstrip("vV") if (ROOT / "version.txt").is_file() else "1.0.0")
     ap.add_argument("--packages", type=Path, default=ROOT / "addons" / "packages")
     ap.add_argument("--models", type=Path, default=ROOT / "models" / "npu")
@@ -166,6 +169,20 @@ def main() -> int:
         }
         if args.release_tag:
             known[f"{name}-{args.addon_version}"]["tag"] = args.release_tag
+    if args.check:
+        pinned = json.loads(KNOWN_FILE.read_text(encoding="utf-8")) if KNOWN_FILE.is_file() else {}
+        bad = [k for k, v in known.items() if pinned.get(k, {}).get("manifest_sha256") != v["manifest_sha256"]]
+        for k, v in known.items():
+            print(f"  {k}: built={v['manifest_sha256']}  pinned={pinned.get(k, {}).get('manifest_sha256')}")
+        if bad:
+            raise SystemExit(
+                "\nThe add-on built here does not match the hashes pinned in core/npu/addons_known.json:\n  "
+                + "\n  ".join(bad)
+                + "\nIf the models or OpenVINO changed on purpose, run scripts/build_npu_addon.py locally and commit the updated "
+                  "addons_known.json together with the change. Otherwise the build is not reproducible - investigate before releasing."
+            )
+        print("\nPinned hashes match the freshly built add-on.")
+        return 0
     update_known(known)
     print(f"\nUpdated {KNOWN_FILE.relative_to(ROOT)} - commit it together with the app release.")
     return 0
