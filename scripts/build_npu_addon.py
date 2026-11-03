@@ -136,7 +136,9 @@ def main() -> int:
                     help="add-on version (default: core/npu/addon_version.txt)")
     ap.add_argument("--check", action="store_true",
                     help="CI mode: do not touch addons_known.json; fail if the built manifests differ from the pinned ones")
-    ap.add_argument("--min-app-version", default=(ROOT / "version.txt").read_text(encoding="utf-8").strip().lstrip("vV") if (ROOT / "version.txt").is_file() else "1.0.0")
+    ap.add_argument("--min-app-version", default=(ROOT / "core" / "npu" / "addon_min_app.txt").read_text(encoding="utf-8").strip(),
+                    help="oldest app version that can use the add-on (default: core/npu/addon_min_app.txt; "
+                         "fixed on purpose so that app patch releases do not change the add-on's pinned hash)")
     ap.add_argument("--packages", type=Path, default=ROOT / "addons" / "packages")
     ap.add_argument("--models", type=Path, default=ROOT / "models" / "npu")
     ap.add_argument("--out", type=Path, default=ROOT / "dist")

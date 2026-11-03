@@ -45,7 +45,7 @@ hayamimi-polyglot/
 ├── setup.sh                # macOS 向けセットアップランチャー (LF)
 ├── start.bat / start.sh    # 起動ランチャー
 ├── test_polyglot_suite.py  # 総合検証テストスイート (全8テスト)
-└── version.txt             # セマンティックバージョニング (1.0.1)
+└── version.txt             # セマンティックバージョニング (1.0.2)
 ```
 
 ---
