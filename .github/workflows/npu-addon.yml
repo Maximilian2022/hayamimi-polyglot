@@ -131,6 +131,15 @@ jobs:
         shell: bash
         run: uv run --python 3.14 python scripts/build_npu_addon.py --check --out dist
 
+      - name: Upload manifests (small; to diagnose hash drift)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: npu-addon-manifests
+          path: dist/*.manifest.json
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload add-on ZIPs as a build artifact (manual runs only)
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7

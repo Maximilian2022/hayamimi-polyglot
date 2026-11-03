@@ -107,6 +107,7 @@ def build_zip(name: str, version: str, files: Dict[str, Path], out_dir: Path, mi
     mbytes = json.dumps(manifest, indent=1, sort_keys=True).encode("utf-8")
     out_dir.mkdir(parents=True, exist_ok=True)
     zip_path = out_dir / f"hayamimi-polyglot-{name}-{version}-{suffix}.zip"
+    (out_dir / f"{name}.manifest.json").write_bytes(mbytes)  # small; lets CI diagnose reproducibility drift
     print(f"  writing {zip_path.name} ({len(files)} files, {manifest['total_bytes'] / 1024 ** 2:.0f} MB uncompressed) ...")
     with zipfile.ZipFile(zip_path, "w") as zf:
         zf.writestr("manifest.json", mbytes, compress_type=zipfile.ZIP_DEFLATED)
