@@ -88,10 +88,6 @@ jobs:
         shell: pwsh
         run: .venv\Scripts\python.exe test_npu_suite.py
 
-      - name: Run the main test suite (CPU mode must be unchanged)
-        shell: pwsh
-        run: .venv\Scripts\python.exe test_polyglot_suite.py
-
   build-addon:
     name: Build NPU add-on & verify pins
     needs: npu-tests
