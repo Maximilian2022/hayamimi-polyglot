@@ -153,8 +153,12 @@ def main() -> int:
 
     core_files: Dict[str, Path] = {}
     core_files.update(collect(ov, "packages/openvino"))
+    # Installer bookkeeping differs between pip and uv (INSTALLER, RECORD, ...) and is useless for a
+    # drop-in package; leaving it out keeps the add-on byte-identical whichever tool installed OpenVINO.
+    skip_meta = {"INSTALLER", "RECORD", "REQUESTED", "direct_url.json"}
     for dist_info in sorted(args.packages.glob("openvino-*.dist-info")):
-        core_files.update(collect(dist_info, f"packages/{dist_info.name}"))
+        core_files.update({k: v for k, v in collect(dist_info, f"packages/{dist_info.name}").items()
+                           if v.name not in skip_meta})
     core_files.update(collect(args.models / "reazon", "models/npu/reazon"))
     core_files.update(collect(args.models / "sensevoice", "models/npu/sensevoice"))
     euro_files = collect(args.models / "parakeet", "models/npu/parakeet")
