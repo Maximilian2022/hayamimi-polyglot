@@ -9,8 +9,8 @@ onnxruntime>=1.31.1
 sherpa-onnx>=2.0.1
 
 # Translation (Local CPU Optimized)
-ctranslate2>=4.8.4
-sentencepiece>=0.2.2
+ctranslate2>=4.8.5
+sentencepiece>=0.2.3
 
 # Business Dictionary & Tokenization (Apache 2.0)
 sudachipy>=0.7.0
