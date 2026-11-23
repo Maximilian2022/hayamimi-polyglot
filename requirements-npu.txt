@@ -11,4 +11,4 @@
 # Smart App Control: only OpenVINO's own binaries are shipped, and every one of them is signed by Intel.
 # Do not add other packages with native extensions to the add-on without checking their signatures.
 openvino==2026.4.1
-onnx>=1.17
+onnx>=1.23.2
