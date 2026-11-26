@@ -15,7 +15,7 @@ export PIP_USE_FEATURE="${PIP_USE_FEATURE:-truststore}"
 
 # 1. Check if virtual environment already exists
 if [ ! -f ".venv/bin/python" ] && [ ! -f ".venv/bin/python3" ]; then
-    echo "📦 Initializing local offline environment..."
+    echo "📦 Initializing local offline environment (Python 3.14)..."
     
     # Check for uv (bundled standalone binary first)
     UV_CMD=""
@@ -35,26 +35,21 @@ if [ ! -f ".venv/bin/python" ] && [ ! -f ".venv/bin/python3" ]; then
         exit 1
     fi
 
-    # Determine Python source (bundled standalone runtime first)
-    PY_FLAG=""
+    # Enforce Python 3.14 (bundled standalone runtime first so cp314 wheels always match)
+    echo "🐍 Creating Python 3.14 virtual environment (.venv)..."
     if [ -f "./python/bin/python3" ]; then
         chmod +x ./python/bin/python3
-        PY_FLAG="--python ./python/bin/python3"
-    elif command -v python3.14 >/dev/null 2>&1; then
-        PY_FLAG="--python 3.14"
-    elif command -v python3 >/dev/null 2>&1; then
-        PY_FLAG="--python python3"
+        "$UV_CMD" venv .venv --python ./python/bin/python3
+    else
+        "$UV_CMD" venv .venv --python 3.14
     fi
-
-    echo "🐍 Creating virtual environment (.venv)..."
-    $UV_CMD venv .venv $PY_FLAG || $UV_CMD venv .venv
 
     if [ -d "wheels" ]; then
         echo "📦 Installing libraries from bundled offline wheels..."
-        $UV_CMD pip install --no-index --find-links ./wheels -r requirements.txt --python .venv/bin/python
+        "$UV_CMD" pip install --no-index --find-links ./wheels -r requirements.txt --python .venv/bin/python
     else
         echo "📦 Installing libraries via uv..."
-        $UV_CMD pip install -r requirements.txt --python .venv/bin/python
+        "$UV_CMD" pip install -r requirements.txt --python .venv/bin/python
     fi
     echo "✓ Environment successfully initialized!"
 fi

@@ -75,6 +75,7 @@ class BusinessASREngine:
         self.device_status: Dict[str, str] = {}
         self._npu_lock = threading.Lock()
         self._npu_gen: Dict[str, int] = {"reazon": 0, "parakeet": 0, "sensevoice": 0}
+        self._npu_err_counts: Dict[str, int] = {"reazon": 0, "parakeet": 0, "sensevoice": 0}
 
         # Recognizer slots (loaded lazily on demand)
         self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & ja/en probe)
@@ -182,40 +183,28 @@ class BusinessASREngine:
             print("[ASR] [Loaded] ReazonSpeech INT8 Zipformer (Japanese)")
             self._upgrade_to_npu("reazon", "recognizer")
 
-    def _init_parakeet(self) -> None:
-        """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European languages)."""
-        if self.parakeet_recognizer is not None:
-            return
-
+    def _create_parakeet_recognizer(self) -> Optional[sherpa_onnx.OfflineRecognizer]:
+        """Create a new CPU Parakeet TDT OfflineRecognizer instance."""
         p_candidates = [
             self.models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
             self.models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8",
             self.models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3",
             self.models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2",
         ]
-        p_dir = None
-        for c in p_candidates:
-            if c.is_dir():
-                p_dir = c
-                break
-
-        if self._try_npu_sync("parakeet", "parakeet_recognizer"):
-            return
-
+        p_dir = next((c for c in p_candidates if c.is_dir()), None)
         if not p_dir:
             print("[ASR] Parakeet TDT model directory not found.")
-            return
+            return None
 
         encoder = _find_file(p_dir, "*encoder*int8*.onnx") or _find_file(p_dir, "*encoder*.onnx")
         decoder = _find_file(p_dir, "*decoder*int8*.onnx") or _find_file(p_dir, "*decoder*.onnx")
         joiner = _find_file(p_dir, "*joiner*int8*.onnx") or _find_file(p_dir, "*joiner*.onnx")
         tokens = p_dir / "tokens.txt"
-
         if not (encoder and decoder and joiner and tokens.is_file()):
-            return
+            return None
 
         try:
-            self.parakeet_recognizer = sherpa_onnx.OfflineRecognizer.from_transducer(
+            rec = sherpa_onnx.OfflineRecognizer.from_transducer(
                 encoder=str(encoder),
                 decoder=str(decoder),
                 joiner=str(joiner),
@@ -225,9 +214,21 @@ class BusinessASREngine:
                 decoding_method="greedy_search",
             )
             print(f"[ASR] [Loaded] Parakeet TDT 0.6B ({p_dir.name}) for English & European languages.")
-            self._upgrade_to_npu("parakeet", "parakeet_recognizer")
+            return rec
         except Exception as exc:
             print(f"[ASR] Failed to initialize Parakeet recognizer: {exc}")
+            return None
+
+    def _init_parakeet(self) -> None:
+        """Initialize NVIDIA NeMo Parakeet TDT 0.6B v3 INT8 (English & European languages)."""
+        if self.parakeet_recognizer is not None:
+            return
+        if self._try_npu_sync("parakeet", "parakeet_recognizer"):
+            return
+        rec = self._create_parakeet_recognizer()
+        if rec is not None:
+            self.parakeet_recognizer = rec
+            self._upgrade_to_npu("parakeet", "parakeet_recognizer")
 
     def _unload_parakeet(self) -> None:
         """Release Parakeet recognizer from RAM."""
@@ -238,26 +239,19 @@ class BusinessASREngine:
             gc.collect()
             print("[ASR] [Unloaded] Parakeet TDT (freed RAM)")
 
-    def _init_sense_voice(self) -> None:
-        """Initialize SenseVoice Small for Asian languages (Chinese, Korean)."""
-        if self.sense_voice_recognizer is not None:
-            return
-
-        if self._try_npu_sync("sensevoice", "sense_voice_recognizer"):
-            return
-
+    def _create_sense_voice_recognizer(self) -> Optional[sherpa_onnx.OfflineRecognizer]:
+        """Create a new CPU SenseVoice Small OfflineRecognizer instance."""
         sv_dir = self.models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
         if not sv_dir.is_dir():
-            return
+            return None
 
         model = _find_file(sv_dir, "*model*int8*.onnx") or _find_file(sv_dir, "*model*.onnx")
         tokens = sv_dir / "tokens.txt"
-
         if not (model and tokens.is_file()):
-            return
+            return None
 
         try:
-            self.sense_voice_recognizer = sherpa_onnx.OfflineRecognizer.from_sense_voice(
+            rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
                 model=str(model),
                 tokens=str(tokens),
                 num_threads=self.threads,
@@ -265,9 +259,21 @@ class BusinessASREngine:
                 use_itn=True,
             )
             print("[ASR] [Loaded] SenseVoice Small for Asian multilingual ASR.")
-            self._upgrade_to_npu("sensevoice", "sense_voice_recognizer")
+            return rec
         except Exception as exc:
             print(f"[ASR] Failed to initialize SenseVoice recognizer: {exc}")
+            return None
+
+    def _init_sense_voice(self) -> None:
+        """Initialize SenseVoice Small for Asian languages (Chinese, Korean)."""
+        if self.sense_voice_recognizer is not None:
+            return
+        if self._try_npu_sync("sensevoice", "sense_voice_recognizer"):
+            return
+        rec = self._create_sense_voice_recognizer()
+        if rec is not None:
+            self.sense_voice_recognizer = rec
+            self._upgrade_to_npu("sensevoice", "sense_voice_recognizer")
 
     def _unload_sense_voice(self) -> None:
         """Release SenseVoice recognizer from RAM."""
@@ -349,6 +355,59 @@ class BusinessASREngine:
         """Per-engine device state for the UI: e.g. {'reazon': 'npu', 'parakeet': 'cpu (...)'}."""
         return dict(self.device_status)
 
+    def _fallback_npu_to_cpu(self, key: str, attr: str, exc: Exception) -> Optional[object]:
+        """Switch a failing NPU engine back to its CPU recognizer for the rest of the session."""
+        builders = {
+            "reazon": self._create_reazon_recognizer,
+            "parakeet": self._create_parakeet_recognizer,
+            "sensevoice": self._create_sense_voice_recognizer,
+        }
+        builder = builders.get(key)
+        if builder is None:
+            return None
+        with self._npu_lock:
+            self._npu_gen[key] += 1
+            cpu_rec = builder()
+            setattr(self, attr, cpu_rec)
+            self.device_status[key] = f"cpu (NPU 実行エラーのため切替: {type(exc).__name__})"
+        gc.collect()
+        print(f"[ASR:NPU] [Fallback] {key} reverted to CPU after runtime errors: {exc}")
+        return cpu_rec
+
+    def _decode_slot(self, key: str, attr: str, pcm_16k_mono: np.ndarray) -> str:
+        """
+        Run a single decode pass on the given recognizer slot.
+        If an NPU recognizer raises consecutive runtime errors, automatically revert to CPU.
+        """
+        rec = getattr(self, attr, None)
+        if rec is None:
+            return ""
+        err_map = getattr(self, "_npu_err_counts", None)
+        try:
+            stream = rec.create_stream()
+            stream.accept_waveform(16000, pcm_16k_mono)
+            rec.decode_stream(stream)
+            if err_map is not None:
+                err_map[key] = 0
+            return stream.result.text.strip()
+        except Exception as ex:
+            print(f"[ASR:{key}] Decode error: {ex}")
+            if self.device_status.get(key) == "npu":
+                cnt = (err_map.get(key, 0) + 1) if err_map is not None else 2
+                if err_map is not None:
+                    err_map[key] = cnt
+                if cnt >= 2:
+                    cpu_rec = self._fallback_npu_to_cpu(key, attr, ex)
+                    if cpu_rec is not None:
+                        try:
+                            s2 = cpu_rec.create_stream()
+                            s2.accept_waveform(16000, pcm_16k_mono)
+                            cpu_rec.decode_stream(s2)
+                            return s2.result.text.strip()
+                        except Exception as cpu_ex:
+                            print(f"[ASR:{key}:CPUFallback] Error: {cpu_ex}")
+            return ""
+
     def update_hotwords(self, hotwords_file: Optional[Path | str] = None) -> None:
         """
         Update hotword state in-memory without reloading ONNX weights.
@@ -401,37 +460,19 @@ class BusinessASREngine:
         # ----------------------------------------------------------------------
         if effective_hint:
             if effective_hint in ("en", "fr", "de", "es") and self.parakeet_recognizer:
-                try:
-                    stream = self.parakeet_recognizer.create_stream()
-                    stream.accept_waveform(16000, pcm_16k_mono)
-                    self.parakeet_recognizer.decode_stream(stream)
-                    raw_text = stream.result.text.strip()
-                    if raw_text:
-                        self.last_detected_lang = effective_hint
-                except Exception as ex:
-                    print(f"[ASR:Hint:{effective_hint}] Decode error: {ex}")
+                raw_text = self._decode_slot("parakeet", "parakeet_recognizer", pcm_16k_mono)
+                if raw_text:
+                    self.last_detected_lang = effective_hint
 
             elif effective_hint in ("zh", "ko") and self.sense_voice_recognizer:
-                try:
-                    stream = self.sense_voice_recognizer.create_stream()
-                    stream.accept_waveform(16000, pcm_16k_mono)
-                    self.sense_voice_recognizer.decode_stream(stream)
-                    raw_text = stream.result.text.strip()
-                    if raw_text:
-                        self.last_detected_lang = effective_hint
-                except Exception as ex:
-                    print(f"[ASR:Hint:{effective_hint}] Decode error: {ex}")
+                raw_text = self._decode_slot("sensevoice", "sense_voice_recognizer", pcm_16k_mono)
+                if raw_text:
+                    self.last_detected_lang = effective_hint
 
             elif effective_hint == "ja" and self.recognizer:
-                try:
-                    stream = self.recognizer.create_stream()
-                    stream.accept_waveform(16000, pcm_16k_mono)
-                    self.recognizer.decode_stream(stream)
-                    raw_text = stream.result.text.strip()
-                    if raw_text:
-                        self.last_detected_lang = "ja"
-                except Exception as ex:
-                    print(f"[ASR:Hint:ja] Decode error: {ex}")
+                raw_text = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
+                if raw_text:
+                    self.last_detected_lang = "ja"
 
         # ----------------------------------------------------------------------
         # Strategy B: Automatic Multi-model Routing (Bilingual / Multilingual)
@@ -439,12 +480,8 @@ class BusinessASREngine:
         if not raw_text and self.high_accuracy_mode:
             # 1. Asian Languages (Korean / Chinese) via SenseVoice when active
             if ("ko" in self.active_languages or "zh" in self.active_languages) and self.sense_voice_recognizer:
-                try:
-                    sv_s = self.sense_voice_recognizer.create_stream()
-                    sv_s.accept_waveform(16000, pcm_16k_mono)
-                    self.sense_voice_recognizer.decode_stream(sv_s)
-                    sv_text = sv_s.result.text.strip()
-
+                sv_text = self._decode_slot("sensevoice", "sense_voice_recognizer", pcm_16k_mono)
+                if sv_text:
                     has_hangul = bool(re.search(r"[\uAC00-\uD7AF\u1100-\u11FF]", sv_text))
                     has_hanzi = bool(re.search(r"[\u4E00-\u9FFF]", sv_text))
                     has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", sv_text))
@@ -455,20 +492,12 @@ class BusinessASREngine:
                     elif has_hanzi and not has_kana and "zh" in self.active_languages:
                         raw_text = sv_text
                         self.last_detected_lang = "zh"
-                except Exception as ex:
-                    print(f"[ASR:AsianProbe] Error: {ex}")
 
             # 2. Japanese vs European Language Disambiguation
             if not raw_text:
                 t_rz = ""
                 if self.recognizer and "ja" in self.active_languages:
-                    try:
-                        rz_s = self.recognizer.create_stream()
-                        rz_s.accept_waveform(16000, pcm_16k_mono)
-                        self.recognizer.decode_stream(rz_s)
-                        t_rz = rz_s.result.text.strip()
-                    except Exception:
-                        pass
+                    t_rz = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
 
                 has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", t_rz))
                 latin_cnt = len(re.findall(r"[A-Za-z]", t_rz))
@@ -481,17 +510,10 @@ class BusinessASREngine:
 
                 # Otherwise if European languages are active -> Parakeet TDT v3
                 elif any(l in self.active_languages for l in ("en", "fr", "de", "es")) and self.parakeet_recognizer:
-                    try:
-                        p_s = self.parakeet_recognizer.create_stream()
-                        p_s.accept_waveform(16000, pcm_16k_mono)
-                        self.parakeet_recognizer.decode_stream(p_s)
-                        p_text = p_s.result.text.strip()
-                        if p_text:
-                            raw_text = p_text
-                        else:
-                            raw_text = t_rz
-                    except Exception as p_ex:
-                        print(f"[ASR:Parakeet] Error: {p_ex}")
+                    p_text = self._decode_slot("parakeet", "parakeet_recognizer", pcm_16k_mono)
+                    if p_text:
+                        raw_text = p_text
+                    else:
                         raw_text = t_rz
                 else:
                     raw_text = t_rz
@@ -502,13 +524,7 @@ class BusinessASREngine:
         # Strategy C: Standard Fallback (ReazonSpeech)
         # ----------------------------------------------------------------------
         if not raw_text and self.recognizer:
-            try:
-                stream = self.recognizer.create_stream()
-                stream.accept_waveform(16000, pcm_16k_mono)
-                self.recognizer.decode_stream(stream)
-                raw_text = stream.result.text.strip()
-            except Exception:
-                pass
+            raw_text = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
 
         if not raw_text:
             return ""

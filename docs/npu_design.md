@@ -307,9 +307,9 @@ CPU 版に上書き展開する追加パックとする。1 アセットの上�
 
 ### リリース手順（NPU アドオン）
 
-1. `python scripts/build_npu_models.py --out models/npu --with-parakeet`（要 onnx, openvino）
-2. `python -m pip install --no-deps --target addons/packages openvino==<版>`（アプリと同じ Python）
-3. `python scripts/build_npu_addon.py --addon-version <ver> --release-tag v<app版>`
+1. `uv run --python 3.14 --with onnx --with openvino==2026.4.1 --with numpy python scripts/build_npu_models.py --out models/npu --with-parakeet`
+2. `uv pip install --no-deps --python 3.14 --target addons/packages openvino==<版>`（Python 3.14 指定・`openvino-telemetry` 除外のため `--no-deps` 必須）
+3. `uv run --python 3.14 python scripts/build_npu_addon.py --addon-version <ver> --release-tag v<app版>`
    * 全ネイティブバイナリの Authenticode 署名（発行元 Intel Corporation）を検査。1 つでも外れたら失敗。
    * `core/npu/addons_known.json` を更新（**アプリ本体と一緒にコミットする**）。
 4. 生成された 2 つの ZIP を GitHub Release に添付。

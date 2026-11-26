@@ -77,6 +77,8 @@ uv run python scripts/download_models.py
 # Windows
 $env:PYTHONIOENCODING="utf-8"
 .venv/Scripts/python test_polyglot_suite.py
+# (任意・依存パッケージ更新時) Smart App Control 署名 & ISG 信頼度チェック
+.venv/Scripts/python scripts/check_sac_trust.py
 
 # macOS / Linux
 PYTHONIOENCODING="utf-8" .venv/bin/python test_polyglot_suite.py

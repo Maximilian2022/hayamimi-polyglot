@@ -2,6 +2,11 @@ name: CI & Portable Release Pipeline
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - '.gitignore'
   push:
     branches:
       - main
@@ -13,12 +18,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-portable-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # -------------------------------------------------------------
-  # Job 1: Verify One-liner Clean Installation (Windows & macOS)
+  # Job 1: Verify One-liner Clean Setup & Full Core Test Suite
   # -------------------------------------------------------------
   test-oneliner:
-    name: Verify One-liner (${{ matrix.os }})
+    name: Verify Setup & Core Tests (${{ matrix.os }})
     permissions:
       contents: read
     strategy:
@@ -46,34 +55,71 @@ jobs:
           $uvDir = Join-Path $env:USERPROFILE ".local\bin"
           $uvDir | Out-File -FilePath $env:GITHUB_PATH -Append
 
-      - name: Verify Windows One-liner Setup
+      - name: Cache AI Models
+        uses: actions/cache@v6
+        with:
+          path: models
+          key: models-int8-full-v1
+
+      - name: Ensure Complete AI Models (Python 3.14)
+        shell: bash
+        run: uv run --python 3.14 python scripts/download_models.py
+
+      - name: Verify Windows One-liner Setup & Test Suites
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $installPath = Join-Path $env:RUNNER_TEMP "hayamimi-oneliner-test"
+          New-Item -ItemType Directory -Path $installPath -Force | Out-Null
+          Copy-Item -Path "models" -Destination (Join-Path $installPath "models") -Recurse -Force
           Write-Host "Testing setup.ps1 in unattended mode..."
           & .\setup.ps1 -Unattended -InstallPath $installPath
-          
-          $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
-          $testCmd = "import os; os.environ['QT_QPA_PLATFORM'] = 'offscreen'; from PySide6 import QtCore, QtWidgets; import main; print('[OK] Windows One-liner setup passed!')"
-          & $pyExe -c $testCmd
 
-      - name: Verify macOS One-liner Setup
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:PYTHONIOENCODING = "utf-8"
+          $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
+          & $pyExe -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version; from PySide6 import QtCore, QtWidgets; import main; print('[OK] Windows One-liner setup passed!')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $pyExe (Join-Path $installPath "test_polyglot_suite.py")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $pyExe (Join-Path $installPath "test_npu_suite.py")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Smart App Control Reputation & Signatures (Defender ISG)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installPath = Join-Path $env:RUNNER_TEMP "hayamimi-oneliner-test"
+          $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
+          Write-Host "Attempting to enable Microsoft Defender MAPS cloud reputation queries on runner..."
+          try {
+            Start-Service -Name WinDefend -ErrorAction SilentlyContinue
+            Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent SendSafeSamples -ErrorAction SilentlyContinue
+          } catch {
+            Write-Host "Note: Defender MAPS preference unchanged on runner ($($_.Exception.Message))"
+          }
+          & $pyExe (Join-Path $installPath "scripts\check_sac_trust.py") --allow-runner-no-cloud
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify macOS One-liner Setup & Test Suite
         if: runner.os == 'macOS'
         shell: bash
         run: |
           INSTALL_PATH="$HOME/hayamimi-oneliner-test"
+          mkdir -p "$INSTALL_PATH"
+          cp -R models "$INSTALL_PATH/models"
           chmod +x ./setup.sh
           ./setup.sh "$INSTALL_PATH" --unattended
-          
+
           TEST_PY="$INSTALL_PATH/.venv/bin/python"
-          QT_QPA_PLATFORM=offscreen "$TEST_PY" -c "import os; from PySide6 import QtCore, QtWidgets; import main; print('[OK] macOS One-liner setup passed!')"
+          QT_QPA_PLATFORM=offscreen PYTHONIOENCODING=utf-8 "$TEST_PY" -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version; from PySide6 import QtCore, QtWidgets; import main; print('[OK] macOS One-liner setup passed!')"
+          QT_QPA_PLATFORM=offscreen PYTHONIOENCODING=utf-8 "$TEST_PY" "$INSTALL_PATH/test_polyglot_suite.py"
 
   # -------------------------------------------------------------
-  # Job 2: Build, Verify & Release Portable Packages (Win & Mac)
+  # Job 2: Build, Verify Signatures & Release Portable Packages
   # -------------------------------------------------------------
   build-and-release:
-    name: Build & Release Portable (${{ matrix.os }})
+    name: Build & Verify Portable (${{ matrix.os }})
     needs: test-oneliner
     permissions:
       contents: write
@@ -123,17 +169,18 @@ jobs:
           path: models
           key: models-int8-full-v1
 
-      - name: Ensure Complete AI Models
+      - name: Ensure Complete AI Models (Python 3.14)
         run: |
-          uv run python scripts/download_models.py
+          uv run --python 3.14 python scripts/download_models.py
         shell: bash
 
-      - name: Build & Run Headless Verification Smoke Test
+      - name: Build, Audit Signatures & Run Headless Smoke Test
         run: |
-          uv run --python 3.14 python ${{ matrix.build_script }}
+          uv run --python 3.14 --with pip --with setuptools --with wheel python ${{ matrix.build_script }}
         shell: bash
 
       - name: Ensure GitHub Release Exists & Refresh Release Notes
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -151,6 +198,7 @@ jobs:
         shell: bash
 
       - name: Upload Portable Package to GitHub Release
+        if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

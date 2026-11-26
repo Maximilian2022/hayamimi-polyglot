@@ -11,6 +11,11 @@ updates:
       day: "monday"
       time: "09:00"
       timezone: "Asia/Tokyo"
+    # Wait 7 days after PyPI release before opening version-bump PRs so newly published
+    # unsigned C/C++ wheels have time to establish Microsoft ISG (Smart App Control) reputation
+    # and to mitigate zero-day supply-chain compromises (security advisories bypass cooldown).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"

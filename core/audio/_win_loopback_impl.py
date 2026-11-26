@@ -1381,7 +1381,11 @@ def list_audio_processes() -> list[AudioProcess]:
 
     processes: dict[int, AudioProcess] = {}
 
-    sessions = AudioUtilities.GetAllSessions()
+    try:
+        sessions = AudioUtilities.GetAllSessions()
+    except Exception:
+        # No active audio output endpoint (e.g. headless CI runner or disconnected speakers/headset)
+        return []
 
     for session in sessions:
         try:

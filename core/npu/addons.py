@@ -623,7 +623,6 @@ def run_startup(root: Optional[Path] = None, log: LogFn = _default_log, backgrou
     root = root or APP_ROOT
 
     def work():
-        STATE.running = True
         try:
             res = process_pending(root, log=log) if has_pending(root) else []
             STATE.results = res
@@ -641,6 +640,7 @@ def run_startup(root: Optional[Path] = None, log: LogFn = _default_log, backgrou
             STATE.done.set()
 
     STATE.done.clear()
+    STATE.running = True
     if background:
         threading.Thread(target=work, daemon=True, name="AddonInstaller").start()
     else:

@@ -16,7 +16,7 @@ Safety rules enforced here (docs/npu_design.md section 8.5, Windows Smart App Co
 
 Typical use:
     python scripts/build_npu_models.py --out models/npu --with-parakeet
-    python -m pip install --no-deps --target addons/packages openvino==2026.4.1   # same Python as the app
+    uv pip install --no-deps --python 3.14 --target addons/packages openvino==2026.4.1
     python scripts/build_npu_addon.py        # version comes from core/npu/addon_version.txt
 """
 

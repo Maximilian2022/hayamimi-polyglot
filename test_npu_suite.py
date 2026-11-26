@@ -304,6 +304,12 @@ def test_addon_installer():
     _drop(root, "l.zip", buf.getvalue())
     res = addons.process_pending(root, log=lambda m: None, known={"t": {"manifest_sha256": mh}}, verifier=ok_sig)
     assert res[0].status == "installed" and not (root.parent / "evil.txt").exists()
+
+    # m) background run_startup sets STATE.running BEFORE returning so wait_until_ready() never races
+    root = fresh()
+    addons.run_startup(root, log=lambda m: None, background=True)
+    assert addons.wait_until_ready(timeout=5.0) is True
+    assert addons.STATE.running is False
     print("  [PASS]")
 
 
@@ -428,6 +434,22 @@ def test_engine_npu_fallbacks_and_swap():
     assert eng4._try_npu_sync("reazon", "recognizer") is False and eng4.device_status["reazon"].startswith("cpu")
     eng4._build_npu = lambda key: (_FakeRecognizer("S"), "")
     assert eng4._try_npu_sync("reazon", "recognizer") is True and eng4.recognizer.text == "S"
+
+    # (6) consecutive NPU runtime inference errors automatically revert the slot back to CPU
+    class _BrokenNpuRecognizer:
+        def create_stream(self):
+            return _FakeStream()
+
+        def decode_stream(self, _stream):
+            raise RuntimeError("NPU driver lost")
+
+    with patched_build(lambda key: (_BrokenNpuRecognizer(), "") if key == "reazon" else (None, "n/a")):
+        eng5 = BusinessASREngine(models_dir=MODELS, initial_languages=["ja"], device="npu")
+        assert _wait(lambda: eng5.get_device_summary().get("reazon") == "npu")
+        # Consecutive NPU decode failures trigger automatic CPU fallback without dropping the utterance
+        recovered = eng5.transcribe_pcm(pcm[:16000 * 8], hint_lang="ja")
+        assert len(recovered) > 0, "Broken NPU must auto-revert to CPU recognizer and return transcript"
+        assert eng5.get_device_summary().get("reazon", "").startswith("cpu (NPU 実行エラー")
     print("  [PASS]")
 
 

@@ -1082,8 +1082,9 @@ class ControlPanel(QtWidgets.QWidget):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         is_win = platform.system() == "Windows"
         setup_script = os.path.join(root, "setup.ps1" if is_win else "setup.sh")
+        bundled_py = os.path.join(root, "python", "python.exe" if is_win else os.path.join("bin", "python3"))
 
-        if not os.path.isfile(setup_script):
+        if os.path.isfile(bundled_py) or not os.path.isfile(setup_script):
             QtWidgets.QMessageBox.information(
                 self,
                 "ポータブル版のご案内",

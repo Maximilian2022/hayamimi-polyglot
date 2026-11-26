@@ -61,10 +61,10 @@ def download_and_extract_python(dst_python: Path) -> None:
 
 def clean_unnecessary_binaries(dst_python: Path) -> None:
     """
-    Remove unused, architecture-mismatched, or test-only unsigned binaries.
-    Helps prevent false-positive Smart App Control (SAC) blocks and reduces package size.
+    Remove unused CLI launchers, architecture-mismatched DLLs, and test-only unsigned binaries.
+    Prevents false-positive Smart App Control (SAC) blocks and reduces package size.
     """
-    print("🧹 Cleaning unnecessary unsigned binaries and test modules...")
+    print("🧹 Cleaning unnecessary unsigned binaries, CLI wrappers, and test modules...")
     removed_count = 0
 
     # 1. Remove pip executable stubs in python/ (unsigned CLI launcher stubs)
@@ -74,11 +74,29 @@ def clean_unnecessary_binaries(dst_python: Path) -> None:
             stub_path.unlink()
             removed_count += 1
 
+    # 2. Remove python/Scripts/ entirely (contains ~43 unsigned pip/uv CLI .exe wrappers & duplicate DLLs
+    #    like pyside6-designer.exe, ct2-*-converter.exe, sherpa-onnx-cli.exe that the app never uses)
+    scripts_dir = dst_python / "Scripts"
+    if scripts_dir.exists():
+        removed_scripts = sum(1 for _ in scripts_dir.rglob("*") if _.is_file())
+        shutil.rmtree(scripts_dir, ignore_errors=True)
+        removed_count += removed_scripts
+        print(f"     - Removed unused python/Scripts/ directory ({removed_scripts} CLI wrapper files)")
+
     site_packages = dst_python / "Lib" / "site-packages"
     if not site_packages.exists():
         return
 
-    # 2. In _sounddevice_data: keep only 64-bit non-ASIO DLL (libportaudio64bit.dll)
+    # 3. Remove pip/wheel/setuptools CLI entrypoints inside site-packages if any .exe stubs exist
+    for pip_exe in site_packages.rglob("*.exe"):
+        try:
+            pip_exe.unlink()
+            removed_count += 1
+            print(f"     - Removed embedded CLI stub: {pip_exe.relative_to(site_packages)}")
+        except Exception:
+            pass
+
+    # 4. In _sounddevice_data: keep only 64-bit non-ASIO DLL (libportaudio64bit.dll)
     sd_binaries = site_packages / "_sounddevice_data" / "portaudio-binaries"
     if sd_binaries.exists():
         for dll_file in sd_binaries.glob("*.dll"):
@@ -87,7 +105,7 @@ def clean_unnecessary_binaries(dst_python: Path) -> None:
                 removed_count += 1
                 print(f"     - Removed unused audio DLL: {dll_file.name}")
 
-    # 3. In numpy: remove test-only C extensions (.pyd) and test suites
+    # 5. In numpy: remove test-only C extensions (.pyd) and test suites
     for test_pyd in site_packages.glob("numpy/**/_*tests*.pyd"):
         try:
             test_pyd.unlink()
@@ -101,6 +119,157 @@ def clean_unnecessary_binaries(dst_python: Path) -> None:
             shutil.rmtree(test_dir, ignore_errors=True)
 
     print(f"  [OK] Cleaned {removed_count} unnecessary binary/test items.")
+
+
+# Packages whose upstream PyPI wheels contain unsigned .dll/.pyd files that have been
+# verified to pass Smart App Control (ISG reputation) for the pinned versions in requirements.txt.
+_ALLOWED_UNSIGNED_TOP_PACKAGES = {
+    "_sounddevice_data",
+    "_soundfile_data",
+    "ctranslate2",
+    "google",
+    "numpy",
+    "numpy.libs",
+    "psutil",
+    "pydantic_core",
+    "sentencepiece",
+    "sherpa_onnx",
+    "sudachipy",
+    "yaml",
+}
+
+
+def _win_verify_authenticode(path: Path) -> bool:
+    """Verify Authenticode signature in-process via WinVerifyTrust (cache-only, zero network)."""
+    import ctypes
+    from ctypes import wintypes
+
+    class GUID(ctypes.Structure):
+        _fields_ = [
+            ("Data1", wintypes.DWORD),
+            ("Data2", wintypes.WORD),
+            ("Data3", wintypes.WORD),
+            ("Data4", ctypes.c_ubyte * 8),
+        ]
+
+    class WINTRUST_FILE_INFO(ctypes.Structure):
+        _fields_ = [
+            ("cbStruct", wintypes.DWORD),
+            ("pcwszFilePath", wintypes.LPCWSTR),
+            ("hFile", wintypes.HANDLE),
+            ("pgKnownSubject", ctypes.c_void_p),
+        ]
+
+    class WINTRUST_DATA(ctypes.Structure):
+        _fields_ = [
+            ("cbStruct", wintypes.DWORD),
+            ("pPolicyCallbackData", ctypes.c_void_p),
+            ("pSIPClientData", ctypes.c_void_p),
+            ("dwUIChoice", wintypes.DWORD),
+            ("fdwRevocationChecks", wintypes.DWORD),
+            ("dwUnionChoice", wintypes.DWORD),
+            ("pFile", ctypes.POINTER(WINTRUST_FILE_INFO)),
+            ("dwStateAction", wintypes.DWORD),
+            ("hWVTStateData", wintypes.HANDLE),
+            ("pwszURLReference", wintypes.LPCWSTR),
+            ("dwProvFlags", wintypes.DWORD),
+            ("dwUIContext", wintypes.DWORD),
+            ("pSignatureSettings", ctypes.c_void_p),
+        ]
+
+    action = GUID(
+        0x00AAC56B,
+        0xCD44,
+        0x11D0,
+        (ctypes.c_ubyte * 8)(0x8C, 0xC2, 0x00, 0xC0, 0x4F, 0xC2, 0x95, 0xEE),
+    )
+    file_info = WINTRUST_FILE_INFO(ctypes.sizeof(WINTRUST_FILE_INFO), str(path), None, None)
+    data = WINTRUST_DATA()
+    data.cbStruct = ctypes.sizeof(WINTRUST_DATA)
+    data.dwUIChoice = 2  # WTD_UI_NONE
+    data.fdwRevocationChecks = 0  # WTD_REVOKE_NONE
+    data.dwUnionChoice = 1  # WTD_CHOICE_FILE
+    data.pFile = ctypes.pointer(file_info)
+    data.dwStateAction = 1  # WTD_STATEACTION_VERIFY
+    data.dwProvFlags = 0x00001000 | 0x00000010  # WTD_CACHE_ONLY_URL_RETRIEVAL | WTD_REVOCATION_CHECK_NONE
+
+    wintrust = ctypes.WinDLL("wintrust")
+    wintrust.WinVerifyTrust.argtypes = [wintypes.HANDLE, ctypes.POINTER(GUID), ctypes.c_void_p]
+    wintrust.WinVerifyTrust.restype = ctypes.c_long
+    try:
+        rc = wintrust.WinVerifyTrust(None, ctypes.byref(action), ctypes.byref(data))
+    finally:
+        data.dwStateAction = 2  # WTD_STATEACTION_CLOSE
+        wintrust.WinVerifyTrust(None, ctypes.byref(action), ctypes.byref(data))
+    return rc == 0
+
+
+def verify_portable_signatures(dst_python: Path) -> None:
+    """
+    Enforce Smart App Control (SAC) binary hygiene before packaging:
+      1. ZERO unsigned .exe files anywhere in python/.
+      2. Core runtime (python/*.exe, python/*.dll, python/DLLs/*, PySide6/*, shiboken6/*, onnxruntime/*)
+         must carry a VALID Authenticode signature.
+      3. Any unsigned .dll/.pyd in site-packages must belong strictly to the known SAC-verified allowlist.
+    """
+    if os.name != "nt":
+        return
+
+    bins = sorted(
+        p for p in dst_python.rglob("*")
+        if p.is_file() and p.suffix.lower() in (".exe", ".dll", ".pyd", ".sys")
+    )
+    if not bins:
+        raise RuntimeError("No native binaries found in portable Python directory.")
+
+    print(f"🛡️ Verifying Authenticode signatures across {len(bins)} native binaries via WinVerifyTrust...")
+    site_packages = (dst_python / "Lib" / "site-packages").resolve()
+    must_be_signed_pkgs = {"PySide6", "shiboken6", "onnxruntime"}
+    signed_count = 0
+    known_unsigned_count = 0
+    violations: list[str] = []
+
+    for p in bins:
+        p_res = p.resolve()
+        rel_py = p_res.relative_to(dst_python.resolve())
+
+        if _win_verify_authenticode(p_res):
+            signed_count += 1
+            continue
+
+        # Rule 1: Never ship an unsigned .exe
+        if p_res.suffix.lower() == ".exe":
+            violations.append(f"Unsigned executable forbidden: {rel_py}")
+            continue
+
+        # Rule 2: Everything outside site-packages (python root & DLLs/) must be signed
+        try:
+            rel_sp = p_res.relative_to(site_packages)
+        except ValueError:
+            violations.append(f"Core Python/VC++ binary must be signed: {rel_py}")
+            continue
+
+        top_pkg = rel_sp.parts[0]
+        # Rule 3: Signed vendor packages (Qt, Microsoft ONNX Runtime) must never lose their signatures
+        if top_pkg in must_be_signed_pkgs:
+            violations.append(f"Expected vendor-signed binary in {top_pkg}: {rel_sp}")
+            continue
+
+        # Rule 4: Only allow pinned, SAC-verified packages to have unsigned .pyd/.dll
+        is_cffi_root = len(rel_sp.parts) == 1 and rel_sp.name.startswith("_cffi_backend")
+        if top_pkg in _ALLOWED_UNSIGNED_TOP_PACKAGES or is_cffi_root:
+            known_unsigned_count += 1
+        else:
+            violations.append(f"Unapproved unsigned binary introduced: {rel_sp}")
+
+    if violations:
+        raise RuntimeError(
+            "Smart App Control signature check failed:\n  - " + "\n  - ".join(violations[:25])
+        )
+    print(
+        f"  [OK] Signature audit passed: {signed_count} validly signed binaries, "
+        f"0 unsigned .exe, {known_unsigned_count} pinned SAC-verified extensions."
+    )
 
 
 def copy_vc_redist_dlls(dst_dir: Path) -> None:
@@ -186,6 +355,15 @@ def main() -> None:
 
     # Remove unused architecture binaries and test .pyd files (Smart App Control false-positive prevention)
     clean_unnecessary_binaries(dst_python)
+
+    # Audit Authenticode signatures and ensure zero unapproved unsigned binaries
+    verify_portable_signatures(dst_python)
+
+    # Audit Microsoft Defender ISG cloud reputation for unsigned runtime extensions
+    from check_sac_trust import audit_site_packages
+
+    if audit_site_packages([dst_python / "Lib" / "site-packages"], allow_runner_no_cloud=True) != 0:
+        raise RuntimeError("Smart App Control ISG reputation check failed during portable build.")
 
     # 4. Copy Application Source & Assets (exclude local config.json)
     items = [

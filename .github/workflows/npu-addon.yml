@@ -74,9 +74,9 @@ jobs:
           path: models
           key: models-int8-full-v1
 
-      - name: Ensure Complete AI Models
+      - name: Ensure Complete AI Models (Python 3.14)
         shell: bash
-        run: uv run python scripts/download_models.py
+        run: uv run --python 3.14 python scripts/download_models.py
 
       - name: Create test environment
         shell: pwsh
@@ -84,9 +84,13 @@ jobs:
           uv venv --python 3.14 .venv
           uv pip install -r requirements.txt --python .venv\Scripts\python.exe
 
-      - name: Run NPU mode tests
+      - name: Run NPU mode tests & Core regression suite
         shell: pwsh
-        run: .venv\Scripts\python.exe test_npu_suite.py
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:PYTHONIOENCODING = "utf-8"
+          .venv\Scripts\python.exe test_npu_suite.py
+          .venv\Scripts\python.exe test_polyglot_suite.py
 
   build-addon:
     name: Build NPU add-on & verify pins
@@ -113,7 +117,7 @@ jobs:
 
       - name: Ensure Complete AI Models (fp32 sources are inside the official archives)
         shell: bash
-        run: uv run python scripts/download_models.py
+        run: uv run --python 3.14 python scripts/download_models.py
 
       - name: Convert models to fixed-shape fp16 OpenVINO IR
         shell: bash

@@ -135,8 +135,35 @@ if ($ScriptDirectory -and ($ScriptDirectory -ne $targetDir) -and (Test-Path (Joi
     Copy-Item -Path (Join-Path $ScriptDirectory ".python-version") -Destination (Join-Path $targetDir ".python-version") -Force -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $ScriptDirectory "installer_gui.py") -Destination (Join-Path $targetDir "installer_gui.py") -Force -ErrorAction SilentlyContinue
     Copy-Item -Path (Join-Path $ScriptDirectory "test_polyglot_suite.py") -Destination (Join-Path $targetDir "test_polyglot_suite.py") -Force -ErrorAction SilentlyContinue
+    Copy-Item -Path (Join-Path $ScriptDirectory "test_npu_suite.py") -Destination (Join-Path $targetDir "test_npu_suite.py") -Force -ErrorAction SilentlyContinue
+    if (Test-Path (Join-Path $ScriptDirectory "tests_data")) {
+        Copy-Item -Path (Join-Path $ScriptDirectory "tests_data") -Destination (Join-Path $targetDir "tests_data") -Recurse -Force
+    }
     Copy-Item -Path (Join-Path $ScriptDirectory "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
+} elseif (-not (Test-Path (Join-Path $targetDir "main.py"))) {
+    Write-Host "🌐 GitHub からプログラムファイルを取得中..." -ForegroundColor Cyan
+    $repoZipUrl = if ($env:HAYAMIMI_REPO_ZIP) { $env:HAYAMIMI_REPO_ZIP } else { "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip" }
+    $zipPath = Join-Path $targetDir "repo_download.zip"
+    $extractTemp = Join-Path $targetDir "_temp_extract"
+    Invoke-WebRequest -Uri $repoZipUrl -OutFile $zipPath -UseBasicParsing
+    Expand-Archive -Path $zipPath -DestinationPath $extractTemp -Force
+    $extractedRoot = Get-ChildItem -Path $extractTemp -Directory | Select-Object -First 1
+    if ($extractedRoot) {
+        Get-ChildItem -Path $extractedRoot.FullName -Force | ForEach-Object {
+            if ($_.Name -notin @("config.json", "models", ".venv")) {
+                $dstItem = Join-Path $targetDir $_.Name
+                if (Test-Path $dstItem) { Remove-Item $dstItem -Recurse -Force }
+                Move-Item -Path $_.FullName -Destination $dstItem -Force
+            }
+        }
+    }
+    Remove-Item $extractTemp -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+    $targetConfig = Join-Path $targetDir "config.json"
+    if (-not (Test-Path $targetConfig) -and (Test-Path (Join-Path $targetDir "config.default.json"))) {
+        Copy-Item -Path (Join-Path $targetDir "config.default.json") -Destination $targetConfig -Force
+    }
 }
 
 Write-Host "📦 依存パッケージを同期中..." -ForegroundColor Cyan

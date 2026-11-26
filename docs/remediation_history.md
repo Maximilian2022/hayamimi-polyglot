@@ -830,3 +830,54 @@
      - これにより、誤った `git push -f` やブランチ削除による重大インシデントを防止しつつ、「Your main branch isn't protected」警告バナーを解消。
   3. **ローカルリポジトリの最新同期**:
      - `git pull origin main` により、マージされた `requirements.txt` の変更（PR #13）をローカル作業コピーへ同期。
+
+
+## 40. Smart App Control (SAC) 対策の全面見直し・依存ピン留め・Python 3.14 完全統一仕上げ・NPU/CI 不整合の解消
+- **背景・ユーザー要望**:
+  - プロジェクトの大前提（一般的なビジネスノート PC の CPU で軽快に動作、完全オフライン・音声非保存、UAC/アンインストーラー不要、NPU はオプトイン）に基づき、SAC 対策の全面見直しと不具合・不整合の再確認を実施。
+  - Python バージョンを `3.14` で完全統一したい。
+  - GitHub Dependabot PR #17（8パッケージ更新）の確認と対応、GUI インストーラーへの NPU オプション追加、PR 時の CI 自動テスト追加を実施（`README.md` 13行目の意図的な文言はそのまま維持）。
+- **実機 SAC 強制モード検証での重大な発見**:
+  - ユーザー環境にて Smart App Control 強制モード（`VerifiedAndReputablePolicyState = 1`）を有効化して全パッケージを実測した結果、PyPI 公開直後で Microsoft ISG の評価実績が未確立な `sherpa-onnx 2.0.2 / 2.0.3` および `ctranslate2 4.9.1`（ならびに開発用の `onnx 1.23.2 / ml-dtypes 0.7.0`）が **`ImportError: アプリケーション制御ポリシーによってこのファイルがブロックされました`** でブロックされることを確認。
+  - 従来の `>=` 指定のままでは、新規セットアップ時や CI ビルド時にブロック対象の最新版を自動取得してしまう状態であったため、SAC 実機通過を確認したバージョン群での `==` ピン留め方式を採用。
+- **実施内容**:
+  1. **依存パッケージの SAC 通過確認済み `==` ピン留めと macOS ビルド同期 (`requirements.txt`, `requirements-npu.txt`, `scripts/build_portable_mac.py`)**:
+     - SAC 強制モード下で通過確認済みのバージョン群（`numpy==2.5.5`, `onnxruntime==1.32.0`, `sherpa-onnx==2.0.1`, `sherpa-onnx-core==2.0.1`, `ctranslate2==4.9.0`, `sentencepiece==0.2.3`, `comtypes==1.5.0`, `fastapi==0.165.0`, `pydantic-core==2.50.5`, `cffi==2.1.1`, `psutil==7.2.2`, `PySide6-Essentials==6.12.0` 等）に `==` でピン留め（Win x64 / Mac arm64 Python 3.14 双方での wheel 提供も確認済み）。
+     - `scripts/build_portable_mac.py` のハードコードされたパッケージ配列を撤廃し、`requirements.txt` から直接読み取って同期する構造に統一。
+  2. **Windows ポータブル版の未署名ファイル一掃と署名監査ガード (`scripts/build_portable_win.py`, `core/npu/device.py`)**:
+     - `python/Scripts/` 配下に生成される未使用の未署名 CLI ラッパー `.exe` / 重複 `.dll`（計43個）をビルド時に一括削除。
+     - `verify_portable_signatures()` を新設し、「未署名 `.exe` が 0 個であること」「Python 本体（PSF）・VC++ / `onnxruntime`（Microsoft）・`PySide6`（Qt）の全バイナリが `Valid` 署名であること」「未知の未署名バイナリが増えていないこと」をビルド時に機械検査。
+     - `core/npu/device.py` で OpenVINO 読み込み前に `OPENVINO_TELEMETRY=0` を明示設定。
+  3. **Python 3.14 完全統一の仕上げ (`.github/workflows/*.yml`, `start.sh`, `scripts/build_npu_addon.py`, `docs/npu_design.md`)**:
+     - CI ワークフロー内の全 `download_models.py` 呼び出しに `--python 3.14` を明記。
+     - `start.sh` で同梱 Python 3.14（または `--python 3.14`）を厳格に使用し、macOS システムの古い Python への誤フォールバックを防止。
+     - NPU アドオン手順コメントを `uv pip install --no-deps --python 3.14` に統一。
+  4. **NPU・オーディオ・インストーラーの不具合解消と GUI オプション追加**:
+     - `core/npu/addons.py`: `run_startup()` のスレッド起動前に `STATE.running = True` を設定し、初回展開直後の `wait_until_ready()` すり抜け競合を修正。
+     - `core/asr_engine.py`: `_decode_slot()` と `_fallback_npu_to_cpu()` を実装し、NPU 推論中に連続例外が発生した際は設計書 §3.3 どおり自動的に CPU 認識器へ切り替えて文字起こしを継続するよう改善。
+     - `core/audio/_win_loopback_impl.py`: `list_audio_processes()` 内の `AudioUtilities.GetAllSessions()` を例外保護し、スピーカー/ヘッドセット未接続 PC や CI ランナーでの `COMError` クラッシュを解消。
+     - `installer_gui.py`, `setup.ps1`, `scripts/fetch_npu_addon.py`: Windows の GUI インストーラーに「🧠 Intel NPU モード用アドオンを追加取得する（任意）」チェックボックス（既定 OFF）を追加し、`setup.ps1` のリモート CLI 実行時のコード取得処理も補完。
+     - `ui/control_panel.py`: ポータブル版判定に `python/python.exe` の存在確認を併用。
+  5. **PR 自動検証 CI の整備 (`.github/workflows/ci-release-portable.yml`, `.github/workflows/npu-addon.yml`, `test_npu_suite.py`)**:
+     - `ci-release-portable.yml` に `pull_request` トリガーを追加し、PR 時に Win/Mac ワンライナー検証・`test_polyglot_suite.py`（全9テスト）・`test_npu_suite.py`・ポータブルビルド署名検査を自動実行（Release アップロードは非 PR 時のみ実行）。
+
+
+## 41. 依存パッケージ新バージョン公開時の Smart App Control (SAC) 自動検査機構と Dependabot クールダウンの導入
+- **背景・ユーザー要望**:
+  - 今後 Dependabot 等で新バージョンの PR が届いた際、Windows 11 の Smart App Control (SAC) を通過できるかどうかを GitHub Actions や Dependabot の仕組みで自動チェックしたい（合意した「案A: Defender ISG 信頼度検査スクリプト＆CI組み込み」＋「案B: Dependabot 7日間クールダウン設定」を実装）。
+- **実施内容**:
+  1. **案A：SAC 信頼度・署名自動検査スクリプトの新設と CI / ビルド統合 (`scripts/check_sac_trust.py`, `.github/workflows/ci-release-portable.yml`, `scripts/build_portable_win.py`)**:
+     - `scripts/check_sac_trust.py` を新設し、以下の 3 段階チェックを実装：
+       1. 本番ランタイム 19 モジュールの動的 `import` チェック。
+       2. `WinVerifyTrust` によるインプロセス Authenticode 電子署名検証（`PySide6`, `shiboken6`, `onnxruntime`, `openvino` の署名必須チェックを含む）。
+       3. 未署名ネイティブ拡張（`.pyd` / `.dll`）に対する `MpCmdRun.exe -TrustCheck -File <path>` を用いた Microsoft Defender ISG（Intelligent Security Graph）クラウドレピュテーション照会。`not a known good file` が 1 件でも検出された場合は対象ファイルを列挙して終了コード `1` で失敗させる。
+     - `.github/workflows/ci-release-portable.yml` の Windows PR/Push テストジョブにて、Defender クラウド照会（MAPS）の有効化を試行した上で `scripts/check_sac_trust.py --allow-runner-no-cloud` を自動実行するステップを追加（ランナーの OS ポリシーによりクラウド接続自体が遮断されている場合のみ誤検知を回避し、クラウド応答がある環境では未評価バイナリを厳格にブロック）。また `scripts/build_portable_win.py` のビルド検査にも統合。
+  2. **案B：Dependabot クールダウン期間の設定 (`.github/dependabot.yml`)**:
+     - `cooldown: default-days: 7` を追加し、PyPI リリース後 7 日間経過してからバージョン更新 PR を作成するよう設定（公開直後で ISG 評価が未確立な wheel の即時 PR 化および公開直後のサプライチェーン汚染リスクを低減。なお GitHub 公式仕様によりセキュリティアドバイザリ対応 PR はクールダウン対象外で即時作成される）。
+  3. **実機検証結果**:
+     - 現行の `requirements.txt` ピン留め環境（`.venv`）に対して `scripts/check_sac_trust.py` を実行し、430 個の署名付きバイナリおよび 26/26 個の未署名ランタイム拡張すべてが `File is Trusted` となり約 5.1 秒で PASS（終了コード `0`）することを確認。
+     - 一時ディレクトリに実機 SAC ブロック実績のある `ctranslate2==4.9.1` を展開して検査を実行し、ブロック原因である `ctranslate2\_ext.cp314-win_amd64.pyd` が `Defender ISG: not a known good file` として検出され FAIL（終了コード `1`）となることを実証確認（検証後の一時ディレクトリは削除済み）。
+  4. **v1.0.3 リリースに向けた CI 事前補強とバージョン更新 (`version.txt`, `config.default.json`, `setup.ps1`, `.github/workflows/ci-release-portable.yml`)**:
+     - `version.txt` および `config.default.json` を `1.0.3` に更新（NPU アドオンの再現性ハッシュ維持のため `core/npu/addon_min_app.txt` は `1.0.2` を維持）。
+     - `ci-release-portable.yml` のポータブルビルド実行時に `--with pip --with setuptools --with wheel` を明示し、`uv run --python 3.14` 環境での macOS wheel 収集時における `pip` 不在エラーを防止。
+     - `setup.ps1` の CLI インストール時に `tests_data/` もコピー対象へ追加し、展開先での `test_npu_suite.py` 実行時のゴールデンデータ参照を保証。

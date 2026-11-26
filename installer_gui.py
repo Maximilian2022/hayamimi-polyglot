@@ -167,6 +167,7 @@ class InstallWorker(QThread):
         clean_venv: bool,
         with_parakeet: bool,
         with_sense_voice: bool,
+        with_npu: bool = False,
         with_zipformer_vi: bool = False,
         should_launch: bool = True,
     ):
@@ -175,6 +176,7 @@ class InstallWorker(QThread):
         self.clean_venv = clean_venv
         self.with_parakeet = with_parakeet
         self.with_sense_voice = with_sense_voice
+        self.with_npu = with_npu
         self.should_launch = should_launch
 
     def run(self):
@@ -299,6 +301,7 @@ class InstallWorker(QThread):
                     "setup.sh",
                     "installer_gui.py",
                     "test_polyglot_suite.py",
+                    "test_npu_suite.py",
                     "Third_Party_Notices.md",
                 ]:
                     src = script_dir / item
@@ -469,7 +472,35 @@ class InstallWorker(QThread):
                     except Exception as e:
                         self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗: {e}")
 
-            self.progress_signal.emit(90)
+            self.progress_signal.emit(88)
+
+            # Ensure addons/ drop-in folder exists on Windows
+            if platform.system() == "Windows":
+                (self.target_dir / "addons").mkdir(parents=True, exist_ok=True)
+
+            # 5-6. Optional: Intel NPU Add-on (Windows only, opt-in)
+            if self.with_npu and platform.system() == "Windows":
+                npu_script = self.target_dir / "scripts" / "fetch_npu_addon.py"
+                if npu_script.is_file():
+                    self.log_signal.emit("⬇️ Intel NPU モード用アドオンを取得中（初回のみ・約 1.8GB）...")
+                    npu_args = [str(py_exe), str(npu_script), "--target-dir", str(self.target_dir)]
+                    if not self.with_parakeet:
+                        npu_args.append("--core-only")
+                    res_npu = subprocess.run(
+                        npu_args,
+                        cwd=str(self.target_dir),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    if res_npu.returncode == 0:
+                        self.log_signal.emit("✓ NPU アドオンを addons/ に配備しました（次回起動時に自動展開されます）")
+                    else:
+                        self.log_signal.emit(f"⚠️ NPU アドオン取得通知:\n{res_npu.stdout.strip()}")
+
+            self.progress_signal.emit(92)
 
             # 6. Create Desktop Launcher
             desktop = get_desktop_dir()
@@ -603,6 +634,16 @@ class InstallerWindow(QMainWindow):
         lbl_sv_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_sensevoice)
         group_models_layout.addWidget(lbl_sv_sub)
+
+        self.chk_npu: QCheckBox | None = None
+        if platform.system() == "Windows":
+            self.chk_npu = QCheckBox("🧠 Intel NPU モード用アドオンを追加取得する (任意: 約 1.8GB)")
+            self.chk_npu.setChecked(False)
+            self.chk_npu.setEnabled(True)
+            lbl_npu_sub = QLabel("  • Intel Core Ultra (NPU搭載) PC向け。音声認識のCPU負荷を軽減します（非搭載PCでは不要）")
+            lbl_npu_sub.setObjectName("lblSub")
+            group_models_layout.addWidget(self.chk_npu)
+            group_models_layout.addWidget(lbl_npu_sub)
 
         layout.addWidget(group_models)
 
@@ -785,12 +826,15 @@ class InstallerWindow(QMainWindow):
         self.chk_clean_venv.setEnabled(False)
         self.chk_parakeet.setEnabled(False)
         self.chk_sensevoice.setEnabled(False)
+        if self.chk_npu is not None:
+            self.chk_npu.setEnabled(False)
 
         self.worker = InstallWorker(
             target_dir=target_dir,
             clean_venv=self.chk_clean_venv.isChecked(),
             with_parakeet=self.chk_parakeet.isChecked(),
             with_sense_voice=self.chk_sensevoice.isChecked(),
+            with_npu=bool(self.chk_npu is not None and self.chk_npu.isChecked()),
             should_launch=self.chk_launch.isChecked(),
         )
         self.worker.log_signal.connect(self.append_log)

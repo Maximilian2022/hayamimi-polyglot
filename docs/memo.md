@@ -44,3 +44,14 @@
 - [ ] 他世代 NPU（Meteor Lake / Lunar Lake）での実機検証（検証は Arrow Lake のみ）
 - [ ] Teams 等と同時使用時の NPU 競合・遅延の実測
 - 詳細: `docs/npu_design.md`（末尾に実装での確定事項とリリース手順）
+
+
+## SAC 対策全面見直し・Python 3.14 完全統一仕上げ・NPU/CI 不整合修正 (2026-11-26)
+- [x] SAC 強制モード (`VerifiedAndReputablePolicyState = 1`) 実機検証により、`sherpa-onnx 2.0.2/2.0.3` と `ctranslate2 4.9.1` がブロックされることを特定し、通過確認済みのバージョン群で `requirements.txt` を `==` ピン留め (`scripts/build_portable_mac.py` も自動同期化)
+- [x] `scripts/build_portable_win.py`: `python/Scripts/` 内の不要な未署名 CLI `.exe`/`.dll`（43個）の自動削除と、`verify_portable_signatures()` による Authenticode 署名・ホワイトリスト機械検査を追加
+- [x] Python 3.14 完全統一仕上げ（CI ワークフローの `--python 3.14` 明記、`start.sh` の同梱 3.14 厳格利用、NPU ドキュメント統一）
+- [x] NPU・オーディオ・インストーラーの不具合修正（`addons.py` の起動競合解消、`asr_engine.py` の NPU 連続エラー時 CPU 自動フォールバック、`list_audio_processes` の出力デバイス不在時 `COMError` 防護、`installer_gui.py` への NPU 追加チェックボックス実装、`setup.ps1` リモート CLI コード取得対応）
+- [x] `ci-release-portable.yml` に `pull_request` トリガーと全テストスイート自動検証を追加
+- [x] **新バージョン公開時の SAC 事前検知自動化 (案A + 案B)**
+  - [x] 案A: `scripts/check_sac_trust.py`（動的 import + `WinVerifyTrust` 署名検査 + `MpCmdRun.exe -TrustCheck` による Defender ISG クラウド評価照会）を実装し、`ci-release-portable.yml` および `scripts/build_portable_win.py` に統合（現行環境 PASS=0 / `ctranslate2==4.9.1` FAIL=1 実機検証済み）
+  - [x] 案B: `.github/dependabot.yml` に `cooldown: default-days: 7` を追加し、公開直後の未評価 wheel の即時 PR 化を防止

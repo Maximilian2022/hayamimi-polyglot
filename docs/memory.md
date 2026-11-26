@@ -32,6 +32,7 @@ hayamimi-polyglot/
 ├── models/                 # AIモデル配置ディレクトリ
 ├── scripts/
 │   ├── download_models.py  # 必須 INT8 モデル一括ダウンロード・検証スクリプト
+│   ├── check_sac_trust.py  # Windows 11 Smart App Control 署名 & Defender ISG 信頼度検査スクリプト
 │   ├── build_portable_win.py # Windows ポータブル ZIP ビルド (CPython 3.14.10 同梱)
 │   └── build_portable_mac.py # macOS ポータブル ZIP ビルド (CPython 3.14.10 & arm64 wheels 同梱)
 ├── docs/
@@ -45,7 +46,7 @@ hayamimi-polyglot/
 ├── setup.sh                # macOS 向けセットアップランチャー (LF)
 ├── start.bat / start.sh    # 起動ランチャー
 ├── test_polyglot_suite.py  # 総合検証テストスイート (全8テスト)
-└── version.txt             # セマンティックバージョニング (1.0.2)
+└── version.txt             # セマンティックバージョニング (1.0.3)
 ```
 
 ---
@@ -88,13 +89,19 @@ hayamimi-polyglot/
 - レジストリ変更を行わないため、**「そのフォルダを削除するだけでアンインストールが完結する」** シンプルな運用を維持。
 
 ### ⑦ Python 3.14 完全統一 & Smart App Control (SAC) 対策
-- `.python-version`、CI ワークフロー（`.github/workflows/ci-release-portable.yml`）、macOS ポータブル版（`scripts/build_portable_mac.py`）のすべてを **Python 3.14 (`3.14.10`)** に統一。
-- **Windows ポータブル版の公式 PSF デジタル署名化 (SAC 対策)**:
-  - Windows 11 の Smart App Control（SAC）によるブロックを防止するため、Windows ポータブル版（`scripts/build_portable_win.py`）の Python ランタイムを、未署名のビルドから **Python Software Foundation (PSF) 公式デジタル署名付き NuGet パッケージ（`python.3.14.10.nupkg`）** に刷新。
-  - これにより、`python.exe`, `pythonw.exe`, `python314.dll`, および標準ライブラリの全 `.pyd` に PSF の Authenticode 署名が付与され、SAC を確実に通過。
-  - 不要なアーキテクチャのバイナリ（PortAudio 32bit/ARM64 DLL）、NumPy テスト用 `.pyd`、pip 未署名スタブをビルド時に自動削除し、誤検知リスクを最小化。
-  - ドキュメント（`README.md`）に Windows 11 の ZIP 展開前「セキュリティ: 許可する (Unblock)」手順を案内。
-- ポータブル版で「⚙️ モデル追加/更新」ボタンを押した際は、バンドル環境保護のため案内ダイアログを表示し、`setup.ps1` の誤実行による環境破損を防止。
+- `.python-version`、CI ワークフロー（`.github/workflows/ci-release-portable.yml`, `npu-addon.yml`）、セットアップ（`setup.ps1`, `setup.sh`, `installer_gui.py`）、ポータブル版（`scripts/build_portable_win.py`, `scripts/build_portable_mac.py`, `start.sh`）のすべてを **Python 3.14 (`3.14.10` / `cp314`)** に完全統一。
+- **依存バージョンの SAC 通過ピン留め (`==`)**:
+  - Windows 11 の Smart App Control（強制モード: `VerifiedAndReputablePolicyState = 1`）は、MOTW の有無にかかわらず未署名の `.pyd` / `.dll`（`sherpa-onnx`, `ctranslate2` 等）を Microsoft ISG クラウドレピュテーションで判定する。
+  - 実機検証にて、リリース直後の wheel（例: `sherpa-onnx 2.0.2 / 2.0.3`, `ctranslate2 4.9.1`）は ISG 未評価のため SAC にブロックされることを確認。
+  - これを防ぐため、`requirements.txt` は `>=` ではなく **SAC 実機通過を確認済みのバージョンに `==` でピン留め** し（推移依存の `sherpa-onnx-core`, `pydantic-core`, `cffi`, `psutil` を含む）、Dependabot PR 到着時に検証してから更新する運用とする。`build_portable_mac.py` も `requirements.txt` から直接読み取って自動同期する。
+  - **Dependabot クールダウン (`cooldown: default-days: 7`) & Defender ISG 自動検査 (`scripts/check_sac_trust.py`)**:
+    - `.github/dependabot.yml` に 7 日間のクールダウンを設定し、PyPI 公開直後で Microsoft ISG 評価が未確立な wheel の即時 PR 化およびゼロデイのサプライチェーン汚染を抑制（セキュリティアップデートはクールダウン対象外で即時通知）。
+    - `scripts/check_sac_trust.py` により、動的 `import` 確認、`WinVerifyTrust` による Authenticode 署名検査、および `MpCmdRun.exe -TrustCheck` による Microsoft Defender ISG クラウド信頼度照会（`File is Trusted` vs `not a known good file`）をローカル開発・CI PR 検証・Windows ポータブルビルド時に自動実行。
+- **Windows ポータブル版の公式 PSF デジタル署名化 & 署名機械検査**:
+  - Windows ポータブル版の Python ランタイムには **Python Software Foundation (PSF) 公式デジタル署名付き NuGet パッケージ（`python.3.14.10.nupkg`）** を使用。
+  - 不要な `python/Scripts/`（43個の未署名 CLI `.exe`/`.dll`）、他アーキテクチャの PortAudio DLL、NumPy テスト用 `.pyd`、pip スタブをビルド時に自動削除。
+  - `verify_portable_signatures()` により、「未署名 `.exe` が 0 個であること」「Python 本体・VC++・PySide6・onnxruntime の署名がすべて `Valid` であること」「未知の未署名バイナリが増えていないこと」を CI ビルド時に強制検査。
+- ポータブル版で「⚙️ モデル追加/更新」ボタンを押した際は、`python/python.exe` の存在も含めて判定し、バンドル環境保護のため案内ダイアログを表示。
 
 ### ⑧ セッション世代管理とローカル Web サーバー保護
 - **セッション世代管理 (`_session_id`)**: 会議停止・履歴クリア時に世代番号をインクリメントし、バックグラウンドキューに残っていた旧セッションの遅延認識・翻訳結果が停止後の画面や議事録に混入するのを防止。
@@ -110,9 +117,13 @@ hayamimi-polyglot/
   - ローカルループバック（`127.0.0.1`, `localhost`）以外の外部 IP / 外部ドメインへの接続要求が発生した瞬間に `NetworkLeakError` で即座に遮断・テスト失敗させる。
   - 7言語 ASR、7言語 NMT、およびエンドツーエンド推論パイプライン（Audio ➔ VAD ➔ DSP ➔ ASR ➔ Dict ➔ NMT）の全行程をこの隔離環境下で実行し、外部通信 0 回（ゼロリーク）であることをコミットごとに自動テストで検証・証明。
 
-### ⑩ GitHub ブランチ保護ポリシー (パターンA: 軽量事故防止型)
+### ⑩ GitHub ブランチ保護ポリシー (パターンA: 軽量事故防止型) & PR 自動検証 CI
 - **設定内容**:
   - `allow_force_pushes: false`: `git push --force` による履歴誤上書き・破壊の防止。
   - `allow_deletions: false`: `main` ブランチの誤削除防止。
   - `required_pull_request_reviews: null`: 開発・修正の身軽さを損なわないよう、管理者の直接プッシュ権限は維持。
-- これにより GitHub 上の「Your main branch isn't protected」警告を解消しつつ、個人・少数開発での高速なサイクルを両立。
+- **PR 自動検証 CI**: `ci-release-portable.yml` に `pull_request` トリガーを設定し、PR 時にも Windows / macOS（Python 3.14）でのワンライナー構築・全9テスト（`test_polyglot_suite.py`）・NPU テスト（`test_npu_suite.py`）・ポータブル署名監査を自動実行（Release アップロードは非 PR 時のみ実行）。
+
+### ⑪ Intel NPU モード（オプトイン）とドキュメント上の維持事項
+- **Intel NPU モード**: CPU モードの軽快さ・無依存性を一切変えず、Windows + Intel NPU 環境でのみオプトイン動作。CPU 先行起動 ➔ バックグラウンド NPU コンパイル切替 ➔ 推論連続エラー時は自動で CPU 認識器へフォールバック。OpenVINO 読み込み時は `OPENVINO_TELEMETRY=0` を強制し、`--no-deps` 同梱によりテレメトリモジュールを含めない。
+- **ドキュメント維持ルール**: `README.md` 13行目の「`…CPU のみで軽快に動作することを目指して設計されています。目標です。`」という表現はユーザーによる意図的な記述であるため、変更・削除せずそのまま維持すること。

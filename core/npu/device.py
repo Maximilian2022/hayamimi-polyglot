@@ -7,6 +7,7 @@ DLL surfaces as ImportError/OSError, and that must degrade to CPU mode, never cr
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 from dataclasses import dataclass
@@ -28,7 +29,8 @@ _core = None
 
 
 def import_openvino():
-    """Import openvino (from addons/packages if needed). Raises on failure."""
+    """Import openvino (from addons/packages if needed) with telemetry strictly disabled."""
+    os.environ.setdefault("OPENVINO_TELEMETRY", "0")
     addons.activate_paths()
     import openvino  # noqa: WPS433 - deliberate lazy import
     return openvino

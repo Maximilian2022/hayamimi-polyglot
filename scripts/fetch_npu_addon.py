@@ -53,9 +53,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--core-only", action="store_true", help="skip the Parakeet (en/fr/de/es) pack")
     ap.add_argument("--tag", help="release tag to read assets from (default: tag recorded in addons_known.json)")
+    ap.add_argument("--target-dir", type=Path, default=ROOT, help="application root directory containing addons/")
     args = ap.parse_args()
 
-    known = json.loads(KNOWN.read_text(encoding="utf-8")) if KNOWN.is_file() else {}
+    target_root = args.target_dir.resolve()
+    known_file = target_root / "core" / "npu" / "addons_known.json"
+    if not known_file.is_file():
+        known_file = KNOWN
+    known = json.loads(known_file.read_text(encoding="utf-8")) if known_file.is_file() else {}
     if not known:
         print("This app version does not list any NPU add-on yet.")
         return 1
@@ -64,7 +69,7 @@ def main() -> int:
     releases = [_get_json(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")] if tag else _get_json(f"https://api.github.com/repos/{REPO}/releases?per_page=20")
     assets = {a["name"]: a["browser_download_url"] for rel in releases for a in rel.get("assets", [])}
 
-    out = ROOT / "addons"
+    out = target_root / "addons"
     out.mkdir(exist_ok=True)
     rc = 0
     for key, info in wanted.items():

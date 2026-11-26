@@ -103,31 +103,25 @@ def main() -> None:
             pass
     print("  ✓ Bundled ./python (CPython 3.14.10 stripped runtime)")
 
-    # 3. Collect macOS arm64 offline wheels for Python 3.14 (macosx_14_0_arm64 / cp314)
+    # 3. Collect macOS arm64 offline wheels for Python 3.14 directly from requirements.txt
     dst_wheels = PKG_DIR / "wheels"
     dst_wheels.mkdir(parents=True, exist_ok=True)
-    print("📦 Collecting macOS arm64 offline wheels for Python 3.14...")
+    print("📦 Collecting macOS arm64 offline wheels for Python 3.14 (synced with requirements.txt)...")
 
-    print("  -> Building wheel for sudachidict-full>=20261015...")
-    subprocess.check_call([
-        sys.executable, "-m", "pip", "wheel", "--no-deps", "-w", str(dst_wheels), "sudachidict-full>=20261015"
-    ])
+    pkgs: list[str] = []
+    for raw_line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line or "sys_platform == 'win32'" in line or 'sys_platform == "win32"' in line:
+            continue
+        req_spec = line.split(";", 1)[0].strip()
+        if req_spec.lower().startswith("sudachidict"):
+            print(f"  -> Building wheel for {req_spec}...")
+            subprocess.check_call([
+                sys.executable, "-m", "pip", "wheel", "--no-deps", "-w", str(dst_wheels), req_spec
+            ])
+            continue
+        pkgs.append(req_spec)
 
-    pkgs = [
-        "numpy>=2.5.4",
-        "sounddevice>=0.5.6",
-        "soundfile>=0.14.0",
-        "onnxruntime>=1.31.1",
-        "sherpa-onnx>=2.0.1",
-        "ctranslate2>=4.8.4",
-        "sentencepiece>=0.2.2",
-        "sudachipy>=0.7.0",
-        "PySide6-Essentials>=6.12.0",
-        "fastapi>=0.162.0",
-        "uvicorn>=0.54.0",
-        "packaging>=26.0",
-        "psutil>=7.1.0",
-    ]
     for pkg in pkgs:
         cmd = [
             sys.executable, "-m", "pip", "download",
