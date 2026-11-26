@@ -14,4 +14,4 @@
 #   * `onnx` / `ml-dtypes` below are build-time conversion tools run on CI runners (where SAC is off);
 #     recent `ml-dtypes` wheels are unsigned and may be blocked on local machines with SAC enforced.
 openvino==2026.4.1
-onnx>=1.17
+onnx>=1.23.2
