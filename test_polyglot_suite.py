@@ -180,7 +180,7 @@ def test_vad():
     models_dir = find_models_dir()
     vad = SileroVAD(models_dir=models_dir)
 
-    wav_path = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17" / "test_wavs" / "ja.wav"
+    wav_path = models_dir / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17" / "test_wavs" / "test_ja_1.wav"
     data, sr = sf.read(str(wav_path))
     if data.ndim > 1:
         data = data[:, 0]
@@ -236,10 +236,10 @@ def test_7_languages_asr():
     )
 
     test_samples = [
-        ("ja", "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ja.wav", "ReazonSpeech Zipformer"),
+        ("ja", "models/sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17/test_wavs/test_ja_1.wav", "ReazonSpeech Zipformer"),
         ("en", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/en.wav", "Parakeet TDT 0.6B v3"),
-        ("zh", "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/zh.wav", "SenseVoice Small"),
-        ("ko", "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs/ko.wav", "SenseVoice Small"),
+        ("zh", "models/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8/test_wavs/zh.wav", "Moonshine Streaming Tiny Zh"),
+        ("ko", "models/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8/test_wavs/ko.wav", "Nemotron 3.5 / Moonshine KO"),
         ("fr", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/fr.wav", "Parakeet TDT 0.6B v3"),
         ("de", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/de.wav", "Parakeet TDT 0.6B v3"),
         ("es", "models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs/es.wav", "Parakeet TDT 0.6B v3"),
@@ -252,6 +252,13 @@ def test_7_languages_asr():
             audio, sr = sf.read(str(p))
             if audio.ndim > 1:
                 audio = audio[:, 0]
+            if sr != 16000:
+                n_out = max(1, int(round(len(audio) * 16000.0 / float(sr))))
+                audio = np.interp(
+                    np.linspace(0.0, 1.0, n_out, endpoint=False),
+                    np.linspace(0.0, 1.0, len(audio), endpoint=False),
+                    audio,
+                )
 
             text = asr.transcribe_pcm(audio.astype(np.float32), hint_lang=lang)
             print(f"  -> [{lang.upper()}] ({expected_model}): {text}")
@@ -265,23 +272,32 @@ def test_lazy_loading_and_memory():
     models_dir = find_models_dir()
     asr = BusinessASREngine(models_dir=models_dir, initial_languages=["ja", "en"])
 
-    # 1. Initially ja + en: Parakeet loaded, SenseVoice NOT loaded
+    # 1. Initially ja + en: Parakeet loaded, zh/ko NOT loaded
     assert asr.recognizer is not None, "ReazonSpeech should be loaded"
     assert asr.parakeet_recognizer is not None, "Parakeet should be loaded for en"
-    assert asr.sense_voice_recognizer is None, "SenseVoice should NOT be loaded initially"
-    print("  -> Phase 1 (ja + en): ReazonSpeech & Parakeet active, SenseVoice RAM = 0MB")
+    assert asr.zh_recognizer is None, "Moonshine Zh should NOT be loaded initially"
+    assert asr.ko_recognizer is None, "Korean ASR should NOT be loaded initially"
+    print("  -> Phase 1 (ja + en): ReazonSpeech & Parakeet active, zh/ko RAM = 0MB")
 
-    # 2. Switch to ja + zh + ko: Parakeet unloaded, SenseVoice loaded
-    asr.set_active_languages(["ja", "zh", "ko"])
+    # 2. Switch to ja + zh: Parakeet unloaded, zh loaded, ko NOT loaded
+    asr.set_active_languages(["ja", "zh"])
     assert asr.parakeet_recognizer is None, "Parakeet should be unloaded to free RAM"
-    assert asr.sense_voice_recognizer is not None, "SenseVoice should be loaded on-demand"
-    print("  -> Phase 2 (ja + zh + ko): Parakeet unloaded (RAM freed), SenseVoice loaded")
+    assert asr.zh_recognizer is not None, "Moonshine Zh should be loaded on-demand"
+    assert asr.ko_recognizer is None, "Korean ASR should remain unloaded when only zh is active"
+    print("  -> Phase 2 (ja + zh): Parakeet unloaded, Moonshine Zh loaded (ko RAM = 0MB)")
 
-    # 3. Switch back to ja + es: SenseVoice unloaded, Parakeet re-loaded
+    # 3. Switch to ja + zh + ko: ko also loaded
+    asr.set_active_languages(["ja", "zh", "ko"])
+    assert asr.zh_recognizer is not None, "Moonshine Zh should stay loaded"
+    assert asr.ko_recognizer is not None, "Korean ASR should be loaded on-demand"
+    print("  -> Phase 3 (ja + zh + ko): Moonshine Zh & Korean ASR loaded")
+
+    # 4. Switch back to ja + es: zh/ko unloaded, Parakeet re-loaded
     asr.set_active_languages(["ja", "es"])
-    assert asr.sense_voice_recognizer is None, "SenseVoice should be unloaded to free RAM"
+    assert asr.zh_recognizer is None, "Moonshine Zh should be unloaded to free RAM"
+    assert asr.ko_recognizer is None, "Korean ASR should be unloaded to free RAM"
     assert asr.parakeet_recognizer is not None, "Parakeet should be loaded on-demand for es"
-    print("  -> Phase 3 (ja + es): SenseVoice unloaded (RAM freed), Parakeet active")
+    print("  -> Phase 4 (ja + es): zh/ko unloaded (RAM freed), Parakeet active")
 
     print("  [PASS] Lazy loading and dynamic memory control verified.")
 
@@ -395,7 +411,7 @@ def test_zero_network_telemetry():
 
     # 2. End-to-end full pipeline inference under 100% network isolation
     models_dir = find_models_dir()
-    wav_path = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17" / "test_wavs" / "ja.wav"
+    wav_path = models_dir / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17" / "test_wavs" / "test_ja_1.wav"
     audio, sr = sf.read(str(wav_path))
     if audio.ndim > 1:
         audio = audio[:, 0]

@@ -14,7 +14,8 @@
 ```
 hayamimi-polyglot/
 ├── core/
-│   ├── asr_engine.py       # ReazonSpeech / Parakeet TDT v3 / SenseVoice Small (INT8 ASR)
+│   ├── asr_engine.py       # ReazonSpeech / Parakeet TDT v3 / Moonshine Zh / Nemotron 3.5 (INT8 ASR)
+│   ├── moonshine_asr.py    # Moonshine v2 5-graph 汎用増分推論ランナー (MIT)
 │   ├── vad.py              # Silero VAD (ONNX, ヒステリシス付き発話区間検出)
 │   ├── translator.py       # CTranslate2 INT8 (M2M-100 多言語相互翻訳 & FuguMT ja->en)
 │   ├── dictionary.py       # Instant Hotwords 抽出 & SudachiPy 形態素・音韻照合後処理エンジン
@@ -125,5 +126,12 @@ hayamimi-polyglot/
 - **PR 自動検証 CI**: `ci-release-portable.yml` に `pull_request` トリガーを設定し、PR 時にも Windows / macOS（Python 3.14）でのワンライナー構築・全9テスト（`test_polyglot_suite.py`）・NPU テスト（`test_npu_suite.py`）・ポータブル署名監査を自動実行（Release アップロードは非 PR 時のみ実行）。
 
 ### ⑪ Intel NPU モード（オプトイン）とドキュメント上の維持事項
-- **Intel NPU モード**: CPU モードの軽快さ・無依存性を一切変えず、Windows + Intel NPU 環境でのみオプトイン動作。CPU 先行起動 ➔ バックグラウンド NPU コンパイル切替 ➔ 推論連続エラー時は自動で CPU 認識器へフォールバック。OpenVINO 読み込み時は `OPENVINO_TELEMETRY=0` を強制し、`--no-deps` 同梱によりテレメトリモジュールを含めない。
+- **Intel NPU モード**: CPU モードの軽快さ・無依存性を一切変えず、Windows + Intel NPU 環境でのみオプトイン動作（日本語 `ReazonSpeech`・欧米 `Parakeet v3` が NPU 対象。中国語・韓国語は CPU 動作）。CPU 先行起動 ➔ バックグラウンド NPU コンパイル切替 ➔ 推論連続エラー時は自動で CPU 認識器へフォールバック。OpenVINO 読み込み時は `OPENVINO_TELEMETRY=0` を強制し、`--no-deps` 同梱によりテレメトリモジュールを含めない。
 - **ドキュメント維持ルール**: `README.md` 13行目の「`…CPU のみで軽快に動作することを目指して設計されています。目標です。`」という表現はユーザーによる意図的な記述であるため、変更・削除せずそのまま維持すること。
+
+### ⑫ 非中華系・商用可 ASR 構成への刷新（アジア圏ハイブリッド構成）
+- **ポリシー**: ビジネスリスク低減のため、中華系モデル（旧 SenseVoice Small / Alibaba）を完全排除し、非中華系かつ商用利用可能なモデルのみで全 7 言語を構成する。
+- **中国語 (`zh`)**: **Moonshine Streaming Tiny Zh (`moonshine-streaming-tiny-zh-onnx`, MIT License)** を `core/moonshine_asr.py`（`onnxruntime` 5-graph 増分ランナー、約 48MB / RAM +83MB / RTF ~0.019）で駆動。
+- **韓国語 (`ko`)**: **NVIDIA Nemotron 3.5 ASR Streaming 0.6B (`sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8`, OpenMDW-1.1)** を `sherpa_onnx.OnlineRecognizer`（`feature_dim=128`、末尾 1.2s 無音パディング）で駆動。
+- **将来 Moonshine KO Streaming (MIT) への自動優先切替**: `core/asr_engine.py` の `_init_ko()` は `models/sherpa-onnx-moonshine-streaming-*-ko*`（`from_moonshine_v2`）または `models/moonshine-streaming-*-ko*`（`MoonshineStreamingRecognizer` 5-graph）が存在する場合は Nemotron より優先ロードする設計とし、公開後のシームレスな乗り換えに対応。
+- **多言語自動ルーティング (`Strategy B`)**: 韓国語がアクティブかつ Nemotron 使用時は `language="auto"` プローブにより他言語への誤ハングル出力を抑制し、併せて `nem_auto_hint` と ReazonSpeech/Moonshine-zh 比較により `ja`/`zh`/`ko`/`en` の自動振り分け精度を維持。

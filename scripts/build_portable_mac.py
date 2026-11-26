@@ -204,13 +204,27 @@ def main() -> None:
             if f.is_file() and (f.suffix in (".onnx", ".txt", ".md") or f.name == "LICENSE"):
                 shutil.copy2(f, pk_dst / f.name)
 
-    sv_src = src_models / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-    if sv_src.exists():
-        sv_dst = dst_models / sv_src.name
-        sv_dst.mkdir(parents=True, exist_ok=True)
-        for f in ["tokens.txt", "model.int8.onnx", "LICENSE", "README.md"]:
-            if (sv_src / f).exists():
-                shutil.copy2(sv_src / f, sv_dst / f)
+    ms_src = src_models / "moonshine-streaming-tiny-zh-onnx"
+    if ms_src.exists():
+        ms_dst = dst_models / ms_src.name
+        ms_dst.mkdir(parents=True, exist_ok=True)
+        for f in ms_src.iterdir():
+            if f.is_file() and (
+                f.name in ("LICENSE", "README.md", "frontend.onnx")
+                or f.suffix == ".json"
+                or "_int8.onnx" in f.name
+            ):
+                shutil.copy2(f, ms_dst / f.name)
+
+    nem_src = src_models / "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8"
+    if nem_src.exists():
+        nem_dst = dst_models / nem_src.name
+        nem_dst.mkdir(parents=True, exist_ok=True)
+        for f in ["tokens.txt", "README.md", "LICENSE"]:
+            if (nem_src / f).exists():
+                shutil.copy2(nem_src / f, nem_dst / f)
+        for f in nem_src.glob("*.int8.onnx"):
+            shutil.copy2(f, nem_dst / f.name)
 
     rz_src = src_models / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17"
     if rz_src.exists():
@@ -258,8 +272,9 @@ def main() -> None:
                     zinfo.external_attr = 0o100755 << 16
                 else:
                     zinfo.external_attr = 0o100644 << 16
+                zinfo.compress_type = zipfile.ZIP_DEFLATED
                 with open(full_path, "rb") as f_in:
-                    zipf.writestr(zinfo, f_in.read())
+                    zipf.writestr(zinfo, f_in.read(), compress_type=zipfile.ZIP_DEFLATED)
                 file_count += 1
                 if file_count % 500 == 0:
                     print(f"  ... archived {file_count} files")

@@ -92,7 +92,6 @@ def test_text_and_window_helpers():
     print("\n[NPU 3/7] Decoding / windowing helpers ...")
     from core.npu.base import NpuRecognizerBase, resample_to_16k, split_windows, squeeze_cjk_spaces
     from core.npu.reazon import decode_byte_bpe, encoder_out_len
-    from core.npu.sensevoice import ctc_greedy
 
     assert squeeze_cjk_spaces("うち の 中学 は 50 円") == "うちの中学は50円"
     assert squeeze_cjk_spaces("TO STOP すな るほど") == "TO STOPすなるほど"
@@ -103,12 +102,6 @@ def test_text_and_window_helpers():
     assert decode_byte_bpe("\u018d\u013a\u014b") == "日"
     assert decode_byte_bpe("IN") == "IN"
     assert encoder_out_len(100) == 23 and encoder_out_len(1000) == 248 and encoder_out_len(3) == 0
-
-    # CTC: collapse repeats, drop blanks, skip the 4 special positions
-    logits = np.zeros((10, 6), dtype=np.float32)
-    for i, k in enumerate([3, 3, 3, 3, 2, 2, 0, 2, 4, 4]):
-        logits[i, k] = 1.0
-    assert ctc_greedy(logits, 6) == [2, 2, 4]
 
     pcm = np.random.default_rng(0).standard_normal(16000 * 25).astype(np.float32) * 0.1
     pcm[16000 * 9: 16000 * 9 + 800] = 0.0  # a quiet spot just before the 10 s limit
@@ -492,7 +485,7 @@ def _transcribe(rec, path):
 def test_real_npu_engines():
     print("\n[NPU 7/7] Real Intel NPU engines ...")
     info = _hardware_ready()
-    from core.npu import parakeet, reazon, sensevoice
+    from core.npu import parakeet, reazon
 
     print(f"  NPU: {info.name}")
     checks = []
@@ -502,15 +495,6 @@ def test_real_npu_engines():
             t = _transcribe(rec, MODELS / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17/test_wavs/test_ja_2.wav")
             assert "日本語" in t, t
             checks.append(("ja", t))
-        if sensevoice.model_files_present(MODELS):
-            rec = sensevoice.SenseVoiceNpuRecognizer(MODELS)
-            sv = MODELS / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/test_wavs"
-            t = _transcribe(rec, sv / "zh.wav")
-            assert "开放时间" in t, t
-            checks.append(("zh", t))
-            t = _transcribe(rec, sv / "ko.wav")
-            assert "생각" in t, t
-            checks.append(("ko", t))
         if parakeet.model_files_present(MODELS):
             rec = parakeet.ParakeetNpuRecognizer(MODELS)
             pk = MODELS / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/test_wavs"

@@ -3,10 +3,11 @@ Hayamimi Polyglot - Core ASR Engine.
 Multi-model offline speech recognition engine optimized for standard CPU execution.
 In-memory streaming with zero disk recording.
 
-Architecture:
+Architecture (Commercial-safe & Non-Chinese models):
   - Japanese (ja): ReazonSpeech INT8 Zipformer (with SudachiPy business dictionary post-processing)
   - English & European (en, fr, de, es): NVIDIA NeMo Parakeet TDT 0.6B v3 INT8
-  - Asian languages (zh, ko): SenseVoice Small (Chinese/Korean & script probe)
+  - Chinese (zh): Moonshine Streaming Tiny Zh INT8 (MIT)
+  - Korean (ko): Moonshine Streaming KO (if installed, MIT) -> NVIDIA Nemotron 3.5 ASR Streaming 0.6B (OpenMDW-1.1)
 
 Lazy Loading / On-demand Activation:
   - Models for non-selected languages are not loaded into RAM.
@@ -24,6 +25,7 @@ import numpy as np
 import sherpa_onnx
 
 from .dictionary import BusinessDictionary
+from .moonshine_asr import MoonshineStreamingRecognizer
 
 
 def _find_file(directory: Path, pattern: str) -> Optional[Path]:
@@ -68,19 +70,21 @@ class BusinessASREngine:
         self._high_accuracy_mode: bool = high_accuracy_mode
 
         # Inference device. "cpu" is the default and behaves exactly as before.
-        # "npu" (Intel NPU, Windows): every engine starts on CPU and is swapped to its NPU build
-        # once that has been compiled; any problem leaves the engine on CPU (see core/npu).
+        # "npu" (Intel NPU, Windows): supported engines start on CPU and are swapped to NPU
+        # once compiled; any problem leaves the engine on CPU (see core/npu).
         self.device: str = device if device in ("cpu", "npu") else "cpu"
         self.npu_cpu_first: bool = npu_cpu_first
         self.device_status: Dict[str, str] = {}
         self._npu_lock = threading.Lock()
-        self._npu_gen: Dict[str, int] = {"reazon": 0, "parakeet": 0, "sensevoice": 0}
-        self._npu_err_counts: Dict[str, int] = {"reazon": 0, "parakeet": 0, "sensevoice": 0}
+        self._npu_gen: Dict[str, int] = {"reazon": 0, "parakeet": 0}
+        self._npu_err_counts: Dict[str, int] = {"reazon": 0, "parakeet": 0}
 
         # Recognizer slots (loaded lazily on demand)
-        self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (Japanese & ja/en probe)
-        self.sense_voice_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # Chinese, Korean, LID probe
-        self.parakeet_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # English, French, German, Spanish
+        self.recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # ReazonSpeech (ja)
+        self.parakeet_recognizer: Optional[sherpa_onnx.OfflineRecognizer] = None  # en, fr, de, es
+        self.zh_recognizer: Optional[MoonshineStreamingRecognizer] = None  # Chinese (Moonshine Streaming)
+        self.ko_recognizer: Optional[object] = None  # Korean (Moonshine KO if present, else Nemotron 3.5)
+        self.ko_backend: str = ""  # "moonshine_v2" | "moonshine_5g" | "nemotron" | ""
 
         # Shared Business post-decoding dictionary
         self.dictionary: BusinessDictionary = dictionary if dictionary is not None else BusinessDictionary()
@@ -121,7 +125,8 @@ class BusinessASREngine:
         """Load required recognizers and unload unused ones according to active_languages."""
         if not self.high_accuracy_mode:
             self._unload_parakeet()
-            self._unload_sense_voice()
+            self._unload_zh()
+            self._unload_ko()
             return
 
         # 1. Parakeet TDT v3 (English, French, German, Spanish)
@@ -131,12 +136,19 @@ class BusinessASREngine:
         elif not needs_parakeet and self.parakeet_recognizer is not None:
             self._unload_parakeet()
 
-        # 2. SenseVoice Small (Chinese, Korean)
-        needs_sense_voice = bool(self.active_languages.intersection({"zh", "ko"}))
-        if needs_sense_voice and self.sense_voice_recognizer is None:
-            self._init_sense_voice()
-        elif not needs_sense_voice and self.sense_voice_recognizer is not None:
-            self._unload_sense_voice()
+        # 2. Chinese (Moonshine Streaming Tiny Zh)
+        needs_zh = "zh" in self.active_languages
+        if needs_zh and self.zh_recognizer is None:
+            self._init_zh()
+        elif not needs_zh and self.zh_recognizer is not None:
+            self._unload_zh()
+
+        # 3. Korean (Moonshine KO Streaming if present, else Nemotron 3.5 ASR Streaming 0.6B)
+        needs_ko = "ko" in self.active_languages
+        if needs_ko and self.ko_recognizer is None:
+            self._init_ko()
+        elif not needs_ko and self.ko_recognizer is not None:
+            self._unload_ko()
 
     # --------------------------------------------------------------------------
     # Initializers & Unloaders
@@ -239,62 +251,122 @@ class BusinessASREngine:
             gc.collect()
             print("[ASR] [Unloaded] Parakeet TDT (freed RAM)")
 
-    def _create_sense_voice_recognizer(self) -> Optional[sherpa_onnx.OfflineRecognizer]:
-        """Create a new CPU SenseVoice Small OfflineRecognizer instance."""
-        sv_dir = self.models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-        if not sv_dir.is_dir():
-            return None
+    def _init_zh(self) -> None:
+        """Initialize Moonshine Streaming Tiny Zh INT8 for Chinese."""
+        if self.zh_recognizer is not None:
+            return
+        candidates = [
+            self.models_dir / "moonshine-streaming-small-zh-onnx",
+            self.models_dir / "moonshine-streaming-tiny-zh-onnx",
+        ]
+        zh_dir = next((c for c in candidates if MoonshineStreamingRecognizer.is_valid_dir(c)), None)
+        if zh_dir is None:
+            print("[ASR] Moonshine Chinese streaming model directory not found.")
+            return
+        try:
+            self.zh_recognizer = MoonshineStreamingRecognizer(zh_dir, num_threads=self.threads)
+            print(f"[ASR] [Loaded] Moonshine Streaming Zh ({zh_dir.name}) for Chinese ASR.")
+        except Exception as exc:
+            print(f"[ASR] Failed to initialize Moonshine Zh recognizer: {exc}")
 
-        model = _find_file(sv_dir, "*model*int8*.onnx") or _find_file(sv_dir, "*model*.onnx")
-        tokens = sv_dir / "tokens.txt"
-        if not (model and tokens.is_file()):
-            return None
+    def _unload_zh(self) -> None:
+        """Release Moonshine Zh recognizer from RAM."""
+        if self.zh_recognizer is not None:
+            self.zh_recognizer = None
+            gc.collect()
+            print("[ASR] [Unloaded] Moonshine Streaming Zh (freed RAM)")
+
+    def _init_ko(self) -> None:
+        """
+        Initialize Korean ASR.
+        Prefers Moonshine Streaming KO (MIT) if/when installed, and falls back to
+        NVIDIA Nemotron 3.5 ASR Streaming 0.6B (OpenMDW-1.1).
+        """
+        if self.ko_recognizer is not None:
+            return
+
+        # 1a. Future Moonshine KO via sherpa-onnx v2 format (encoder + decoder + tokens.txt)
+        for pattern in ("sherpa-onnx-moonshine-streaming-*-ko*", "sherpa-onnx-moonshine-v2-*-ko*"):
+            for ko_dir in sorted(self.models_dir.glob(pattern)):
+                enc = _find_file(ko_dir, "*encoder*int8*.onnx") or _find_file(ko_dir, "*encoder*.onnx")
+                dec = _find_file(ko_dir, "*decoder*int8*.onnx") or _find_file(ko_dir, "*decoder*.onnx")
+                tok = ko_dir / "tokens.txt"
+                if enc and dec and tok.is_file():
+                    try:
+                        self.ko_recognizer = sherpa_onnx.OfflineRecognizer.from_moonshine_v2(
+                            encoder=str(enc),
+                            decoder=str(dec),
+                            tokens=str(tok),
+                            num_threads=self.threads,
+                        )
+                        self.ko_backend = "moonshine_v2"
+                        print(f"[ASR] [Loaded] Moonshine Streaming KO ({ko_dir.name}) for Korean ASR.")
+                        return
+                    except Exception as exc:
+                        print(f"[ASR] Failed to initialize Moonshine v2 KO ({ko_dir.name}): {exc}")
+
+        # 1b. Future Moonshine KO via 5-graph ONNX format
+        for pattern in ("moonshine-streaming-small-ko*", "moonshine-streaming-tiny-ko*", "moonshine-streaming-*-ko*"):
+            for ko_dir in sorted(self.models_dir.glob(pattern)):
+                if MoonshineStreamingRecognizer.is_valid_dir(ko_dir):
+                    try:
+                        self.ko_recognizer = MoonshineStreamingRecognizer(ko_dir, num_threads=self.threads)
+                        self.ko_backend = "moonshine_5g"
+                        print(f"[ASR] [Loaded] Moonshine Streaming KO ({ko_dir.name}) for Korean ASR.")
+                        return
+                    except Exception as exc:
+                        print(f"[ASR] Failed to initialize Moonshine 5g KO ({ko_dir.name}): {exc}")
+
+        # 2. Active default: NVIDIA Nemotron 3.5 ASR Streaming 0.6B INT8 (OpenMDW-1.1)
+        nem_candidates = [
+            self.models_dir / "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8",
+            self.models_dir / "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-int8",
+        ]
+        nem_dir = next((c for c in nem_candidates if c.is_dir()), None)
+        if not nem_dir:
+            print("[ASR] Korean ASR model (Nemotron 3.5 / Moonshine KO) not found.")
+            return
+
+        encoder = _find_file(nem_dir, "*encoder*int8*.onnx") or _find_file(nem_dir, "*encoder*.onnx")
+        decoder = _find_file(nem_dir, "*decoder*int8*.onnx") or _find_file(nem_dir, "*decoder*.onnx")
+        joiner = _find_file(nem_dir, "*joiner*int8*.onnx") or _find_file(nem_dir, "*joiner*.onnx")
+        tokens = nem_dir / "tokens.txt"
+        if not (encoder and decoder and joiner and tokens.is_file()):
+            print(f"[ASR] Incomplete Nemotron 3.5 model files in {nem_dir}")
+            return
 
         try:
-            rec = sherpa_onnx.OfflineRecognizer.from_sense_voice(
-                model=str(model),
+            self.ko_recognizer = sherpa_onnx.OnlineRecognizer.from_transducer(
                 tokens=str(tokens),
+                encoder=str(encoder),
+                decoder=str(decoder),
+                joiner=str(joiner),
                 num_threads=self.threads,
-                language="auto",
-                use_itn=True,
+                feature_dim=128,
             )
-            print("[ASR] [Loaded] SenseVoice Small for Asian multilingual ASR.")
-            return rec
+            self.ko_backend = "nemotron"
+            print(f"[ASR] [Loaded] Nemotron 3.5 ASR Streaming 0.6B ({nem_dir.name}) for Korean ASR.")
         except Exception as exc:
-            print(f"[ASR] Failed to initialize SenseVoice recognizer: {exc}")
-            return None
+            print(f"[ASR] Failed to initialize Nemotron 3.5 recognizer: {exc}")
 
-    def _init_sense_voice(self) -> None:
-        """Initialize SenseVoice Small for Asian languages (Chinese, Korean)."""
-        if self.sense_voice_recognizer is not None:
-            return
-        if self._try_npu_sync("sensevoice", "sense_voice_recognizer"):
-            return
-        rec = self._create_sense_voice_recognizer()
-        if rec is not None:
-            self.sense_voice_recognizer = rec
-            self._upgrade_to_npu("sensevoice", "sense_voice_recognizer")
-
-    def _unload_sense_voice(self) -> None:
-        """Release SenseVoice recognizer from RAM."""
-        self._npu_gen["sensevoice"] += 1
-        self.device_status.pop("sensevoice", None)
-        if self.sense_voice_recognizer is not None:
-            self.sense_voice_recognizer = None
+    def _unload_ko(self) -> None:
+        """Release Korean recognizer from RAM."""
+        if self.ko_recognizer is not None:
+            self.ko_recognizer = None
+            self.ko_backend = ""
             gc.collect()
-            print("[ASR] [Unloaded] SenseVoice Small (freed RAM)")
+            print("[ASR] [Unloaded] Korean ASR (freed RAM)")
 
     # --------------------------------------------------------------------------
     # NPU (Intel AI Boost) support - optional, opt-in, always falls back to CPU
     # --------------------------------------------------------------------------
     def _npu_factory(self, key: str):
         """Return (model_files_present, recognizer_class) for an engine key, importing lazily."""
-        from core.npu import parakeet, reazon, sensevoice
+        from core.npu import parakeet, reazon
 
         return {
             "reazon": (reazon.model_files_present, reazon.ReazonNpuRecognizer),
             "parakeet": (parakeet.model_files_present, parakeet.ParakeetNpuRecognizer),
-            "sensevoice": (sensevoice.model_files_present, sensevoice.SenseVoiceNpuRecognizer),
         }[key]
 
     def _build_npu(self, key: str):
@@ -360,7 +432,6 @@ class BusinessASREngine:
         builders = {
             "reazon": self._create_reazon_recognizer,
             "parakeet": self._create_parakeet_recognizer,
-            "sensevoice": self._create_sense_voice_recognizer,
         }
         builder = builders.get(key)
         if builder is None:
@@ -374,7 +445,19 @@ class BusinessASREngine:
         print(f"[ASR:NPU] [Fallback] {key} reverted to CPU after runtime errors: {exc}")
         return cpu_rec
 
-    def _decode_slot(self, key: str, attr: str, pcm_16k_mono: np.ndarray) -> str:
+    def _decode_online_nemotron(self, rec: sherpa_onnx.OnlineRecognizer, pcm_16k_mono: np.ndarray, lang: str = "ko") -> str:
+        """Decode an utterance via Nemotron 3.5 streaming OnlineRecognizer with tail flush padding."""
+        s = rec.create_stream()
+        s.set_option("language", lang)
+        s.accept_waveform(16000, pcm_16k_mono)
+        # Flush the 1120ms streaming chunk so trailing syllables are not clipped
+        s.accept_waveform(16000, np.zeros(int(16000 * 1.2), dtype=np.float32))
+        s.input_finished()
+        while rec.is_ready(s):
+            rec.decode_stream(s)
+        return rec.get_result(s).strip()
+
+    def _decode_slot(self, key: str, attr: str, pcm_16k_mono: np.ndarray, lang_opt: str = "ko") -> str:
         """
         Run a single decode pass on the given recognizer slot.
         If an NPU recognizer raises consecutive runtime errors, automatically revert to CPU.
@@ -384,10 +467,12 @@ class BusinessASREngine:
             return ""
         err_map = getattr(self, "_npu_err_counts", None)
         try:
+            if key == "ko" and self.ko_backend == "nemotron":
+                return self._decode_online_nemotron(rec, pcm_16k_mono, lang=lang_opt)
             stream = rec.create_stream()
             stream.accept_waveform(16000, pcm_16k_mono)
             rec.decode_stream(stream)
-            if err_map is not None:
+            if err_map is not None and key in err_map:
                 err_map[key] = 0
             return stream.result.text.strip()
         except Exception as ex:
@@ -424,7 +509,7 @@ class BusinessASREngine:
         """Return True if at least one recognizer is loaded and ready."""
         return any(
             r is not None
-            for r in (self.recognizer, self.parakeet_recognizer, self.sense_voice_recognizer)
+            for r in (self.recognizer, self.parakeet_recognizer, self.zh_recognizer, self.ko_recognizer)
         )
 
     # --------------------------------------------------------------------------
@@ -436,7 +521,8 @@ class BusinessASREngine:
         Routing Architecture:
           - Japanese (ja): ReazonSpeech INT8 Zipformer (Dictionary enabled)
           - European languages (en, fr, de, es): Parakeet TDT 0.6B v3 INT8
-          - Asian languages (zh, ko): SenseVoice Small
+          - Chinese (zh): Moonshine Streaming Tiny Zh INT8
+          - Korean (ko): Moonshine KO Streaming (if installed) or Nemotron 3.5 ASR Streaming 0.6B
         """
         if len(pcm_16k_mono) == 0:
             return ""
@@ -464,10 +550,15 @@ class BusinessASREngine:
                 if raw_text:
                     self.last_detected_lang = effective_hint
 
-            elif effective_hint in ("zh", "ko") and self.sense_voice_recognizer:
-                raw_text = self._decode_slot("sensevoice", "sense_voice_recognizer", pcm_16k_mono)
+            elif effective_hint == "zh" and self.zh_recognizer:
+                raw_text = self._decode_slot("zh", "zh_recognizer", pcm_16k_mono)
                 if raw_text:
-                    self.last_detected_lang = effective_hint
+                    self.last_detected_lang = "zh"
+
+            elif effective_hint == "ko" and self.ko_recognizer:
+                raw_text = self._decode_slot("ko", "ko_recognizer", pcm_16k_mono, lang_opt="ko")
+                if raw_text:
+                    self.last_detected_lang = "ko"
 
             elif effective_hint == "ja" and self.recognizer:
                 raw_text = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
@@ -478,46 +569,78 @@ class BusinessASREngine:
         # Strategy B: Automatic Multi-model Routing (Bilingual / Multilingual)
         # ----------------------------------------------------------------------
         if not raw_text and self.high_accuracy_mode:
-            # 1. Asian Languages (Korean / Chinese) via SenseVoice when active
-            if ("ko" in self.active_languages or "zh" in self.active_languages) and self.sense_voice_recognizer:
-                sv_text = self._decode_slot("sensevoice", "sense_voice_recognizer", pcm_16k_mono)
-                if sv_text:
-                    has_hangul = bool(re.search(r"[\uAC00-\uD7AF\u1100-\u11FF]", sv_text))
-                    has_hanzi = bool(re.search(r"[\u4E00-\u9FFF]", sv_text))
-                    has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", sv_text))
+            nem_auto_hint: Optional[str] = None
 
-                    if has_hangul and "ko" in self.active_languages:
-                        raw_text = sv_text
-                        self.last_detected_lang = "ko"
-                    elif has_hanzi and not has_kana and "zh" in self.active_languages:
-                        raw_text = sv_text
+            # 1. Korean (Hangul probe via dedicated ko_recognizer)
+            if "ko" in self.active_languages and self.ko_recognizer:
+                # In multilingual routing, Nemotron 'auto' avoids forcing non-Korean speech into spurious Hangul
+                probe_opt = "auto" if self.ko_backend == "nemotron" else "ko"
+                ko_text = self._decode_slot("ko", "ko_recognizer", pcm_16k_mono, lang_opt=probe_opt)
+                hangul_chars = re.findall(r"[\uAC00-\uD7AF\u1100-\u11FF]", ko_text)
+                hanzi_chars = re.findall(r"[\u4E00-\u9FFF]", ko_text)
+                kana_chars = re.findall(r"[\u3040-\u309F\u30A0-\u30FF]", ko_text)
+                if ko_text and len(hangul_chars) >= 2 and len(hangul_chars) >= len(hanzi_chars):
+                    raw_text = ko_text
+                    self.last_detected_lang = "ko"
+                elif self.ko_backend == "nemotron" and ko_text:
+                    # Reuse Nemotron's multilingual LID signal to route ja vs zh accurately
+                    if kana_chars and "ja" in self.active_languages:
+                        nem_auto_hint = "ja"
+                    elif hanzi_chars and not kana_chars and "zh" in self.active_languages:
+                        nem_auto_hint = "zh"
+
+            # 2. Japanese vs Chinese vs European Language Disambiguation
+            if not raw_text:
+                if nem_auto_hint == "zh" and self.zh_recognizer:
+                    zh_text = self._decode_slot("zh", "zh_recognizer", pcm_16k_mono)
+                    if zh_text and re.search(r"[\u4E00-\u9FFF]", zh_text):
+                        raw_text = zh_text
                         self.last_detected_lang = "zh"
 
-            # 2. Japanese vs European Language Disambiguation
-            if not raw_text:
-                t_rz = ""
-                if self.recognizer and "ja" in self.active_languages:
-                    t_rz = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
+                if not raw_text:
+                    t_rz = ""
+                    if self.recognizer and "ja" in self.active_languages:
+                        t_rz = self._decode_slot("reazon", "recognizer", pcm_16k_mono)
 
-                has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", t_rz))
-                latin_cnt = len(re.findall(r"[A-Za-z]", t_rz))
-                cjk_cnt = len(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", t_rz))
+                    has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", t_rz))
+                    latin_cnt = len(re.findall(r"[A-Za-z]", t_rz))
+                    cjk_cnt = len(re.findall(r"[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]", t_rz))
 
-                # If kana is present or CJK characters dominate -> Japanese
-                if t_rz and (has_kana or (cjk_cnt > 0 and cjk_cnt >= latin_cnt)):
-                    raw_text = t_rz
-                    self.last_detected_lang = "ja"
-
-                # Otherwise if European languages are active -> Parakeet TDT v3
-                elif any(l in self.active_languages for l in ("en", "fr", "de", "es")) and self.parakeet_recognizer:
-                    p_text = self._decode_slot("parakeet", "parakeet_recognizer", pcm_16k_mono)
-                    if p_text:
-                        raw_text = p_text
-                    else:
+                    if nem_auto_hint == "ja" and t_rz:
                         raw_text = t_rz
-                else:
-                    raw_text = t_rz
-                    if raw_text:
+                        self.last_detected_lang = "ja"
+                    elif t_rz and (has_kana or ("zh" not in self.active_languages and cjk_cnt > 0 and cjk_cnt >= latin_cnt)):
+                        # When both ja and zh are active (without Nemotron hint), check Moonshine-zh
+                        # if Reazon output is short or ambiguous so Chinese isn't misrouted to ja.
+                        if "zh" in self.active_languages and self.zh_recognizer and len(t_rz) < 20:
+                            zh_text = self._decode_slot("zh", "zh_recognizer", pcm_16k_mono)
+                            zh_hanzi = len(re.findall(r"[\u4E00-\u9FFF]", zh_text))
+                            zh_has_kana = bool(re.search(r"[\u3040-\u309F\u30A0-\u30FF]", zh_text))
+                            if zh_text and not zh_has_kana and zh_hanzi > len(t_rz):
+                                raw_text = zh_text
+                                self.last_detected_lang = "zh"
+                        if not raw_text:
+                            raw_text = t_rz
+                            self.last_detected_lang = "ja"
+                    elif "zh" in self.active_languages and self.zh_recognizer:
+                        zh_text = self._decode_slot("zh", "zh_recognizer", pcm_16k_mono)
+                        has_hanzi = bool(re.search(r"[\u4E00-\u9FFF]", zh_text))
+                        if zh_text and has_hanzi and not re.search(r"[\u3040-\u309F\u30A0-\u30FF]", zh_text):
+                            raw_text = zh_text
+                            self.last_detected_lang = "zh"
+                        elif t_rz and cjk_cnt > 0 and cjk_cnt >= latin_cnt:
+                            raw_text = t_rz
+                            self.last_detected_lang = "ja"
+
+                    # European languages via Parakeet TDT v3
+                    if not raw_text and any(l in self.active_languages for l in ("en", "fr", "de", "es")) and self.parakeet_recognizer:
+                        p_text = self._decode_slot("parakeet", "parakeet_recognizer", pcm_16k_mono)
+                        if p_text:
+                            raw_text = p_text
+                        elif t_rz:
+                            raw_text = t_rz
+                    elif not raw_text and t_rz:
+                        raw_text = t_rz
                         self.last_detected_lang = "ja"
 
         # ----------------------------------------------------------------------

@@ -434,14 +434,28 @@ def main() -> None:
         for f in pk_src.iterdir():
             if f.is_file() and (f.suffix in (".onnx", ".txt", ".md") or f.name == "LICENSE"):
                 shutil.copy2(f, pk_dst / f.name)
-    # SenseVoice INT8 only
-    sv_src = src_models / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-    if sv_src.exists():
-        sv_dst = dst_models / sv_src.name
-        sv_dst.mkdir(parents=True, exist_ok=True)
-        for f in ["tokens.txt", "model.int8.onnx", "LICENSE", "README.md"]:
-            if (sv_src / f).exists():
-                shutil.copy2(sv_src / f, sv_dst / f)
+    # Moonshine Streaming Tiny Zh INT8
+    ms_src = src_models / "moonshine-streaming-tiny-zh-onnx"
+    if ms_src.exists():
+        ms_dst = dst_models / ms_src.name
+        ms_dst.mkdir(parents=True, exist_ok=True)
+        for f in ms_src.iterdir():
+            if f.is_file() and (
+                f.name in ("LICENSE", "README.md", "frontend.onnx")
+                or f.suffix == ".json"
+                or "_int8.onnx" in f.name
+            ):
+                shutil.copy2(f, ms_dst / f.name)
+    # Nemotron 3.5 ASR Streaming 0.6B INT8 (skip test_wavs)
+    nem_src = src_models / "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8"
+    if nem_src.exists():
+        nem_dst = dst_models / nem_src.name
+        nem_dst.mkdir(parents=True, exist_ok=True)
+        for f in ["tokens.txt", "README.md", "LICENSE"]:
+            if (nem_src / f).exists():
+                shutil.copy2(nem_src / f, nem_dst / f)
+        for f in nem_src.glob("*.int8.onnx"):
+            shutil.copy2(f, nem_dst / f.name)
     # ReazonSpeech INT8 only
     rz_src = src_models / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17"
     if rz_src.exists():

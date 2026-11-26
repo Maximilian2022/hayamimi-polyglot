@@ -67,7 +67,11 @@ def main() -> int:
     wanted = {k: v for k, v in known.items() if not (args.core_only and "euro" in k)}
     tag = args.tag or next(iter(v.get("tag") for v in wanted.values() if v.get("tag")), None)
     releases = [_get_json(f"https://api.github.com/repos/{REPO}/releases/tags/{tag}")] if tag else _get_json(f"https://api.github.com/repos/{REPO}/releases?per_page=20")
-    assets = {a["name"]: a["browser_download_url"] for rel in releases for a in rel.get("assets", [])}
+    # Releases are ordered newest-first; keep the newest asset URL if filenames collide across releases.
+    assets: dict[str, str] = {}
+    for rel in releases:
+        for a in rel.get("assets", []):
+            assets.setdefault(a["name"], a["browser_download_url"])
 
     out = target_root / "addons"
     out.mkdir(exist_ok=True)

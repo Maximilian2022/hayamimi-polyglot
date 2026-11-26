@@ -6,7 +6,7 @@ Integrates:
   - Localhost (127.0.0.1) Screen Sharing Web View
   - Dual-track Audio Capture (Self Mic + Remote Meeting App Loopback)
   - 4-Stage Audio DSP Chain (Noise Gate, Mid-Range EQ, De-Esser, AGC Compressor)
-  - Silero VAD + Multi-model Offline ASR (ReazonSpeech, Parakeet TDT v3, SenseVoice)
+  - Silero VAD + Multi-model Offline ASR (ReazonSpeech, Parakeet TDT v3, Moonshine, Nemotron 3.5)
   - CTranslate2 Local Multilingual Translation (M2M-100 & FuguMT)
   - In-memory processing with no disk audio recording or external telemetry.
 """
@@ -393,7 +393,7 @@ def _start_npu_state_probe(panel, info_lines: list) -> None:
 
     def work():
         try:
-            from core.npu import addons, device, parakeet, reazon, sensevoice
+            from core.npu import addons, device, parakeet, reazon
 
             panel.npu_info.emit("NPU アドオンを展開しています…" if addons.STATE.running else "")
             addons.wait_until_ready()
@@ -402,7 +402,7 @@ def _start_npu_state_probe(panel, info_lines: list) -> None:
             if not info_lines:
                 panel.npu_info.emit("")
             info = device.probe()
-            has_models = any(m.model_files_present() for m in (reazon, parakeet, sensevoice))
+            has_models = any(m.model_files_present() for m in (reazon, parakeet))
             if addons.STATE.signature_error:
                 panel.status_warning.emit(addons.STATE.signature_error)
             panel.npu_state_ready.emit(bool(info.available and has_models), info.name)
@@ -495,6 +495,13 @@ def main():
             "AIモデルが見つかりません",
             "音声認識またはVADモデルが見つかりませんでした。\n"
             "画面右下の「⚙️ モデル追加/更新」または scripts/download_models.py を実行してモデルを取得してください。",
+        )
+    elif initial_high_acc and (
+        ("zh" in initial_langs and asr_engine.zh_recognizer is None)
+        or ("ko" in initial_langs and asr_engine.ko_recognizer is None)
+    ):
+        panel.status_warning.emit(
+            "中国語・韓国語の新 ASR モデルが未取得です。「⚙️ モデル追加/更新」または setup.ps1 / setup.sh を実行してください。"
         )
 
     worker = SessionWorker(

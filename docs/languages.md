@@ -7,17 +7,19 @@
 ## 1. 主要 7 言語 マッピング一覧（UI 提供言語）
 
 UI（コントロールパネル）で選択可能な主要 7 言語における、**音声認識（入力）** と **翻訳（出力）** の担当モデル一覧です。  
-※本プロジェクトでは商用利用時のライセンス安全性を確保するため、非商用ライセンス（CC-BY-NC 等）のモデルを除外しています。
+※本プロジェクトでは商用利用時のライセンス安全性およびサプライチェーン方針に基づき、非商用ライセンス（CC-BY-NC 等）および中華系モデルを除外し、商用利用可能な非中華系モデルのみで構成しています。
 
 | 言語 | 国旗 | 音声聞き取り (ASR) 担当モデル | ASR 推論ランタイム | 翻訳 (NMT) 担当モデル | NMT 推論ランタイム |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| **日本語** (`ja`) | 🇯🇵 | **ReazonSpeech Zipformer** (+ SudachiPy 後処理) | sherpa-onnx (CPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
-| **英語** (`en`) | 🇺🇸 | **Parakeet TDT 0.6B v3** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
-| **中国語** (`zh`) | 🇨🇳 | **SenseVoice Small** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
-| **韓国語** (`ko`) | 🇰🇷 | **SenseVoice Small** | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
-| **フランス語** (`fr`) | 🇫🇷 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
-| **ドイツ語** (`de`) | 🇩🇪 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
-| **スペイン語** (`es`) | 🇪🇸 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **日本語** (`ja`) | 🇯🇵 | **ReazonSpeech Zipformer** (+ SudachiPy 後処理) | sherpa-onnx (CPU) / OpenVINO (NPU) | **FuguMT** (対英) / **M2M-100** | CTranslate2 INT8 |
+| **英語** (`en`) | 🇺🇸 | **Parakeet TDT 0.6B v3** | sherpa-onnx (CPU) / OpenVINO (NPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **中国語** (`zh`) | 🇨🇳 | **Moonshine Streaming Tiny Zh** | onnxruntime (CPU INT8) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **韓国語** (`ko`) | 🇰🇷 | **NVIDIA Nemotron 3.5 ASR Streaming 0.6B** *(※1)* | sherpa-onnx (CPU INT8) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **フランス語** (`fr`) | 🇫🇷 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) / OpenVINO (NPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **ドイツ語** (`de`) | 🇩🇪 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) / OpenVINO (NPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+| **スペイン語** (`es`) | 🇪🇸 | **Parakeet TDT 0.6B v3** (欧州25言語版) | sherpa-onnx (CPU) / OpenVINO (NPU) | **M2M-100** (多言語相互翻訳) | CTranslate2 INT8 |
+
+> *(※1) 韓国語 ASR は、将来 **Moonshine Streaming KO（MIT License）** が公開されモデルディレクトリへ配置された場合、自動的に Moonshine へ優先切替できる互換構成を備えています。*
 
 ---
 
@@ -32,16 +34,16 @@ CPU のみで軽快に動作する INT8 量子化モデルを言語特性に合�
                   [4段オーディオ DSP チェーン]
         (1. ノイズゲート ➔ 2. 中音域EQ ➔ 3. ディエッサー ➔ 4. AGCコンプレッサー)
                               │
-                ┌─────────────┼─────────────┐
-                ▼                           ▼                             ▼
-         【日本語 (ja)】              【英語・欧米圏】              【中・韓・アジア圏】
-      ReazonSpeech Zipformer        Parakeet TDT 0.6B v3           SenseVoice Small
-     (+ SudachiPy 辞書後処理)      (英語・欧州25言語対応)          (中国語・韓国語対応)
+       ┌──────────────────────┼──────────────────────┬──────────────────────┐
+       ▼                      ▼                      ▼                      ▼
+  【日本語 (ja)】        【欧米圏 (en/fr/de/es)】   【中国語 (zh)】         【韓国語 (ko)】
+ReazonSpeech Zipformer   Parakeet TDT 0.6B v3   Moonshine Streaming   Nemotron 3.5 ASR 0.6B
+ (+ SudachiPy 辞書)       (欧州25言語対応)         Tiny Zh (MIT)       (Moonshine KO 切替対応)
 ```
 
 ### ① ReazonSpeech Zipformer (Reazon Human Interaction Lab) - 【日本語メイン】
 - **担当言語**: 日本語 (`ja`)
-- **推論エンジン**: `sherpa-onnx` (`from_transducer`, `greedy_search`)
+- **推論エンジン**: `sherpa-onnx` (`from_transducer`, `greedy_search`) / NPU モード時は OpenVINO
 - **ライセンス**: Apache License 2.0（商用利用可）
 - **サイズ**: 約 180 MB (INT8)
 - **特徴**:
@@ -50,22 +52,31 @@ CPU のみで軽快に動作する INT8 量子化モデルを言語特性に合�
 
 ### ② Parakeet TDT 0.6B v3 (NVIDIA NeMo) - 【英語・欧米圏メイン】
 - **担当言語**: 英語 (`en`), フランス語 (`fr`), ドイツ語 (`de`), スペイン語 (`es`) など欧州 25 言語（v2 環境では英語特化）
-- **推論エンジン**: `sherpa-onnx` (`from_transducer`, `model_type="nemo_transducer"`)
+- **推論エンジン**: `sherpa-onnx` (`from_transducer`, `model_type="nemo_transducer"`) / NPU モード時は OpenVINO
 - **ライセンス**: Creative Commons Attribution 4.0 International (CC-BY-4.0)（商用利用可）
 - **サイズ**: 約 460〜640 MB (INT8)
 - **特徴**:
   - TDT (Token-and-Duration Transducer) アーキテクチャにより、少ない推論ステップで高速にデコードします。
   - 英語および主要欧州言語の自然な会話、ビジネス用語、句読点、大文字小文字の再現性に優れています。
-  - INT8 量子化により、GPU（CUDA）を必要とせず一般的なノート PC の CPU のみで動作します。
 
-### ③ SenseVoice Small (Alibaba Tongyi Lab) - 【中国語・韓国語・アジア圏】
-- **担当言語**: 中国語 (`zh`: 普通話・広東語), 韓国語 (`ko`), アジア圏多言語
-- **推論エンジン**: `sherpa-onnx` (`from_sense_voice`)
-- **ライセンス**: FunASR Model Open Source License Agreement v1.1（商用利用許諾・要クレジット表示）
-- **サイズ**: 約 240 MB (INT8)
+### ③ Moonshine Streaming Tiny Zh (Moonshine AI) - 【中国語】
+- **担当言語**: 中国語 (`zh`: 普通話)
+- **推論エンジン**: `onnxruntime` 5-graph 増分ランナー (`core/moonshine_asr.py`, CPU INT8)
+- **ライセンス**: MIT License（商用利用可）
+- **サイズ**: 約 48 MB (INT8)
 - **特徴**:
-  - 中国語・韓国語などアジア系言語の音声認識と数字正規化（ITN）を担当します。
-  - 多言語会議時の言語判定（LID）プローブとしても機能します。
+  - Moonshine v2（Sliding-Window Streaming Attention）ベースの超軽量・超高速モデル（CPU RTF ~0.019）。
+  - メモリ増分が約 83 MB と非常に小さく、低スペックノート PC でも軽快に動作します。
+
+### ④ NVIDIA Nemotron 3.5 ASR Streaming 0.6B (NVIDIA) - 【韓国語】
+- **担当言語**: 韓国語 (`ko`)
+- **推論エンジン**: `sherpa-onnx` (`OnlineRecognizer.from_transducer`, Cache-Aware FastConformer-RNNT, CPU INT8)
+- **ライセンス**: OpenMDW-1.1（商用利用可）
+- **サイズ**: 約 651 MB (INT8)
+- **特徴**:
+  - 韓国語（`ko-KR`）が Transcription-ready ティアに指定された高精度ストリーミングモデルです。
+  - 発話末チャンクの欠落を防ぐため、終了時に 1.2 秒の無音パディングを付与してデコードします。多言語混在ルーティング時は `auto` 言語プロンプトで他言語（日本語・中国語）への誤ハングル出力を抑制します。
+  - 将来 Moonshine Streaming KO（MIT）が公開された際は、`models/moonshine-streaming-*-ko*`（5-graph または sherpa-onnx `from_moonshine_v2` 形式）を配置するだけで自動優先切替されます。
 
 ---
 
@@ -80,7 +91,7 @@ CPU のみで軽快に動作する INT8 量子化モデルを言語特性に合�
 - **サイズ**: 約 480 MB
 - **特徴**:
   - 多言語の語彙・重みを内包しており、追加ダウンロードなしで選択言語間の双方向翻訳を行います。
-  - 1つの発言に対し、選択されている残り全言語（最大4言語）へ `translate_batch` により並行翻訳を出力します。
+  - 1つの発言に対し、選択されている残り全言語（最大4言語）へ `translate_batch` により並行翻訳出力します。
 
 ### ② FuguMT (ja -> en 特化)
 - **担当言語**: 日本語 ➔ 英語 (`ja -> en`) 専用
@@ -97,7 +108,8 @@ CPU のみで軽快に動作する INT8 量子化モデルを言語特性に合�
 一般的なビジネスノート PC のメモリと CPU リソースを節約するため、以下のリソース制御を採用しています。
 
 1. **未選択モデルの非活性**:
-   - ディスク（`models/`）に全モデルが配置されていても、会議の対象言語として選択されていない言語のモデル（例: 中国語・韓国語、または欧州言語）は、初期状態では RAM にロードされません。
+   - ディスク（`models/`）に全モデルが配置されていても、会議の対象言語として選択されていない言語のモデル（英語/欧米・中国語・韓国語）は、初期状態では RAM にロードされません。
+   - 中国語（`zh`）と韓国語（`ko`）は個別のオンデマンドスロットに分離されているため、中国語のみの会議で Nemotron（約 700MB RAM）が読み込まれることはありません。
 2. **単一言語選択時の直接ルーティング**:
    - 会議設定で 1 言語のみを選択している場合（文字起こし専念モード等）、言語判定用の複数モデルデコードを省略し、対象言語の ASR モデルのみを直接実行して CPU 負荷を抑えます。
 3. **オンデマンド起動とメモリ解放**:

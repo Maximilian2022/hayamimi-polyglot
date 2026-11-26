@@ -40,34 +40,36 @@
 
 ## 2. 事前学習済み AI モデル (ASR / NMT / VAD)
 
-### ① SenseVoice Small (アジア多言語 ASR)
-* **提供元**: Alibaba Group ([FunASR / SenseVoice](https://github.com/FunASR/SenseVoice))
-* **モデル名**: `sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` (`SenseVoiceSmall`)
-* **ライセンス**: FunASR Model Open Source License Agreement (v1.1)
-* **商用利用**: 許諾（Permitted）（※要クレジット・モデル名表記）
-* **著作権表示**: Copyright (C) 2023-2028 Alibaba Group. All rights reserved.
-* **ライセンス条約抜粋**:
-  ```text
-  Section 2: License and Restrictions
-  2.1 License: You are free to use, copy, modify, and share [FunASR Software] under the terms of this agreement.
-  2.2 Restrictions: When using, copying, modifying, and sharing [FunASR Software], you must attribute the source and author information and retain relevant model names in [FunASR Software].
-  ```
+### ① Moonshine Streaming Tiny Zh (中国語 ASR)
+* **提供元**: Moonshine AI / Useful Sensors ([moonshine-ai/moonshine](https://github.com/moonshine-ai/moonshine))
+* **ONNX 変換提供元**: [Masterx/moonshine-streaming-tiny-zh-ONNX](https://huggingface.co/Masterx/moonshine-streaming-tiny-zh-ONNX)
+* **モデル名**: `moonshine-streaming-tiny-zh-onnx`
+* **ライセンス**: MIT License
+* **商用利用**: 許諾（Permitted）
+* **著作権表示**: Copyright (c) Moonshine AI (Useful Sensors, Inc.)
 
-### ② NVIDIA NeMo Parakeet TDT 0.6B v3 (欧米多言語 ASR)
+### ② NVIDIA Nemotron 3.5 ASR Streaming 0.6B (韓国語 ASR)
+* **提供元**: NVIDIA Corporation ([nvidia/nemotron-3.5-asr-streaming-0.6b](https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b))
+* **ONNX 変換提供元**: `csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8-2026-06-11`
+* **モデル名**: `sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8`
+* **ライセンス**: OpenMDW-1.1 ([https://openmdw.ai/license/1-1/](https://openmdw.ai/license/1-1/))
+* **商用利用**: 許諾（Permitted）
+
+### ③ NVIDIA NeMo Parakeet TDT 0.6B v3 (欧米多言語 ASR)
 * **提供元**: NVIDIA Corporation ([NVIDIA NeMo](https://github.com/NVIDIA/NeMo))
 * **モデル名**: `sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8` / `v2-int8`
 * **ライセンス**: Creative Commons Attribution 4.0 International (CC-BY-4.0)
 * **商用利用**: 許諾（Permitted）（※要クレジット表記）
 * **著作権表示**: Copyright (c) NVIDIA Corporation. All rights reserved.
 
-### ③ ReazonSpeech (日本語リアルタイム ASR)
+### ④ ReazonSpeech (日本語リアルタイム ASR)
 * **提供元**: 株式会社レアゾン・ホールディングス ([ReazonSpeech](https://github.com/reazon-research/ReazonSpeech))
 * **モデル名**: `sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17`
 * **ライセンス**: Apache License 2.0
 * **商用利用**: 許諾（Permitted）
 * **著作権表示**: Copyright 2023 Reazon Holdings, inc.
 
-### ④ Meta M2M-100 (100言語相互翻訳) & CTranslate2 変換モデル
+### ⑤ Meta M2M-100 (100言語相互翻訳) & CTranslate2 変換モデル
 * **原モデル提供元**: Meta AI / Facebook AI Research ([M2M-100](https://github.com/facebookresearch/fairseq/tree/main/examples/m2m_100))
 * **CTranslate2 量子化モデル提供元**: [mojicast/mojicast-m2m100-ct2](https://huggingface.co/mojicast/mojicast-m2m100-ct2)
 * **モデル名**: `mojicast-m2m100-ct2` (418M INT8)
@@ -75,7 +77,7 @@
 * **商用利用**: 許諾（Permitted）
 * **著作権表示**: Copyright (c) Meta Platforms, Inc. and affiliates.
 
-### ⑤ FuguMT (日本語-英語 機械翻訳) & CTranslate2 変換モデル
+### ⑥ FuguMT (日本語-英語 機械翻訳) & CTranslate2 変換モデル
 * **原モデル提供元**: Takuya Shibata (staka) / Staircase ([FuguMT](https://github.com/staka/fugumt))
 * **CTranslate2 量子化モデル提供元**: [mojicast/mojicast-fugumt-ja-en-ct2](https://huggingface.co/mojicast/mojicast-fugumt-ja-en-ct2)
 * **モデル名**: `mojicast-fugumt-ja-en-ct2`
@@ -83,7 +85,7 @@
 * **商用利用**: 許諾（Permitted）
 * **著作権表示**: Copyright (c) Takuya Shibata (staka)
 
-### ⑥ Silero VAD (音声区間検出)
+### ⑦ Silero VAD (音声区間検出)
 * **提供元**: Silero Team ([silero-vad](https://github.com/snakers4/silero-vad))
 * **モデル名**: `silero_vad.onnx`
 * **ライセンス**: MIT License
@@ -101,7 +103,6 @@ NPU アドオン（Intel NPU 向けオプション）には、以下のコンポ
 
 #### NPU 向けに変換したモデル
 NPU（固定長入力・fp16）で動作させるため、上記モデルを OpenVINO IR 形式へ変換しています。モデル名・提供元・ライセンスは上記の各項目と同一です。
-* **SenseVoice Small**: FunASR Model Open Source License Agreement に従い、モデル名（SenseVoice）と提供元（Alibaba Group / FunASR）を保持しています。変更点: 入力長の固定、fp16 化、LayerNorm 入力の等価なスケーリング（出力は数学的に不変。fp16 での桁あふれ防止のため）。
 * **ReazonSpeech**: Apache License 2.0。変更点: 入力長の固定、fp16 化（エンコーダ）、OpenVINO IR 形式への変換。
 * **NVIDIA Parakeet TDT 0.6B v3**: CC-BY-4.0。原モデル © NVIDIA Corporation。OpenVINO IR への変換物は [FluidInference/parakeet-tdt-0.6b-v3-ov](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-ov)（同じく CC-BY-4.0）を、無改変のまま利用しています。
 

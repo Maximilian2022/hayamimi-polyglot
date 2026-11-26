@@ -884,3 +884,40 @@
   5. **`setup.ps1` の Windows PowerShell 5.1 ローカル実行 & Web ワンライナー完全両立化（方法A）および Windows Server ランナー ISG カナリア判定 (`setup.ps1`, `scripts/check_sac_trust.py`, `.github/workflows/ci-release-portable.yml`)**:
      - 日本語 Windows の PowerShell 5.1 (`powershell.exe`) では、UTF-8 BOM ありだと `irm ... | iex` ワンライナーで `CmdletBinding` 構文エラーになり、逆に生日本語を含む BOM なし UTF-8 だとローカル `.\setup.ps1` 実行時に CP932 誤読による構文エラーが発生する問題を解消するため、`setup.ps1` のソース自体を純粋な 7-bit ASCII（BOM なし）で構成し、日本語・絵文字メッセージは `[regex]::Unescape` ヘルパー（`Invoke-DecodeMsg`）で復元する方式（方法A）へ改修。実機 PowerShell 5.1 の `Parser::ParseFile` と `scriptblock::Create` の双方でエラー 0 件を確認し、CI 上でも `powershell.exe` (5.1) で `setup.ps1` を実行検証するよう強化。
      - GitHub Actions の `windows-latest`（Windows Server）では OS ポリシーにより Defender クラウド ISG 照会が無効化されオフライン VDM 定義の 3 件のみが `Trusted` となる挙動を確認したため、`--allow-runner-no-cloud` 指定時にベースラインカナリア（`numpy/_multiarray_umath`）を含む過半数が未評価となる場合はランナーのクラウド無効状態として安全に警告通過させる判定を追加。
+
+
+## 42. SenseVoice Small の撤去と非中華系・商用可アジア圏 ASR（Moonshine Zh + Nemotron 3.5 Ko ハイブリッド）への全面刷新
+- **背景・ユーザー要望**:
+  - ビジネスリスク低減のため、中華系モデル（Alibaba `SenseVoice Small`）をシステム・NPU・インストーラー・ライセンス表記から完全に排除する。
+  - 実機ベンチマーク検証（Google FLEURS `zh` / `ko`、ライセンス原文確認）の結果、単一モデルで両言語を満たす代替は現時点で存在しないため、**案A（中国語: `Moonshine Streaming Tiny Zh` [MIT] ＋ 韓国語: `NVIDIA Nemotron 3.5 ASR Streaming 0.6B` [OpenMDW-1.1] のハイブリッド分担）** を採用。
+  - 将来 `Moonshine Streaming KO`（MIT）が公開された際、最小変更で乗り換え可能な構造とする。
+- **実測比較（Google FLEURS `zh`=22発話 / `ko`=24発話, CPU 2スレッド）**:
+  - `Moonshine Streaming Tiny Zh (INT8)`: 約 48MB、ロード `0.21s`、RAM `+82.6 MB`、CER `11.71%`、RTF `0.0189`。
+  - `NVIDIA Nemotron 3.5 ASR Streaming 0.6B (1120ms INT8)`: 約 651MB、ロード `2.24s`、RAM `+696.6 MB`、韓国語 CER `7.57%` (`auto`: `7.37%`) / RTF `0.1090〜0.1186`（既存 `sherpa-onnx==2.0.1` のまま無改造で動作）。
+- **実施内容**:
+  1. **Moonshine Streaming 汎用増分推論ランナー新設 (`core/moonshine_asr.py`)**:
+     - `sherpa_onnx.OfflineRecognizer` 互換の `create_stream()` / `decode_stream()` / `stream.result.text` API を持つ `MoonshineStreamingRecognizer`（`onnxruntime` 5-graph 増分推論）を実装。
+     - `streaming_config.json` / `tokenizer.json` / `*_int8.onnx` を自動認識し、現在の `zh` モデルおよび将来の `ko` モデルの双方に対応。
+  2. **ASR エンジンの刷新と自動ルーティング強化 (`core/asr_engine.py`)**:
+     - `SenseVoice Small` スロットを廃止し、`zh_recognizer`（Moonshine）と `ko_recognizer`（将来 `moonshine-streaming-*-ko*` または `sherpa-onnx-moonshine-streaming-*-ko*` が配置されれば優先ロード、未配置時は `Nemotron 3.5` をロード）へ分離・オンデマンド遅延ロード化。
+     - Nemotron 用のストリーミングデコード（`language="ko"` または多言語プローブ時 `"auto"` + 1.2 秒末尾フラッシュ無音パディング）を実装し、`[ja+zh]` / `[ja+zh+ko]` / `[en+zh+ko]` の自動言語ルーティングを実機検証。
+  3. **モデルダウンロード・ビルド・NPU・CI・ドキュメントの更新**:
+     - `scripts/download_models.py`, `installer_gui.py`, `scripts/build_portable_win.py`, `scripts/build_portable_mac.py`: `SenseVoice` を除外し、`moonshine-streaming-tiny-zh-onnx` および `sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8` を対象へ変更（既存 `requirements.txt` の SAC 通過済み依存ピン留めは一切変更せず維持）。
+     - `core/npu/sensevoice.py` を削除し、`main.py`, `ui/control_panel.py`, `scripts/build_npu_models.py`, `scripts/build_npu_addon.py`, `core/npu/addons_known.json` を `reazon` + `parakeet` 構成へ更新（`build_npu_addon.py` で `pwsh` 優先検出対応および `npu-addon-core` の署名・ハッシュ再確定済み）。
+     - `.github/workflows/ci-release-portable.yml`, `.github/workflows/npu-addon.yml`: モデルキャッシュキーを `models-int8-full-v2` へ更新。
+     - `test_polyglot_suite.py`, `test_npu_suite.py`, `Third_Party_Notices.md`, `README.md`, `docs/languages.md`, `docs/memory.md`, `config.default.json` を新構成に合わせて更新。
+
+
+## 43. リリース前アップデート互換性監査・macOS ポータブル ZIP 圧縮バグ修正・v1.0.4 準備
+- **監査で発見した潜在リスクと対処内容**:
+  1. **macOS ポータブル ZIP の無圧縮バグ（GitHub Releases 2 GiB 上限超過リスク）修正 (`scripts/build_portable_mac.py`)**:
+     - `zipfile.ZipInfo.from_file()` がデフォルトで `compress_type = ZIP_STORED (0)` を生成し、`writestr(zinfo, ...)` が外側の `ZIP_DEFLATED` 指定を無視して全モデル等を無圧縮（`v1.0.3` 時点で約 2.04 GB）で格納していた不具合を特定。`zinfo.compress_type = zipfile.ZIP_DEFLATED` および `compress_type=zipfile.ZIP_DEFLATED` を明示し、新モデル（+280MB 圧縮後）を含めても 2 GiB 上限内に収まるよう修正。
+  2. **NPU アドオンのバージョン更新とアセット重複上書き防止 (`core/npu/addon_version.txt`, `core/npu/addons_known.json`, `scripts/fetch_npu_addon.py`)**:
+     - SenseVoice 除外に伴い NPU アドオンバージョンを `1.0.0` ➔ `1.0.1` へ上げ、既存リリース（`v1.0.2` / `v1.0.3`）の `1.0.0` ZIP とのファイル名衝突を回避（`addons_known.json` を `1.0.1` のハッシュへ更新）。
+     - `scripts/fetch_npu_addon.py` でリリース一覧を走査する際、古いリリースが新しいリリースの同名アセット URL を上書きしないよう `assets.setdefault(...)` へ修正。
+  3. **既存ユーザーのアップデート体験とクリーンアップ (`installer_gui.py`, `scripts/download_models.py`, `main.py`)**:
+     - `installer_gui.py` のモデル配備ステップを展開先の `scripts/download_models.py` 呼び出しへ一本化し、今後のアップデート時に古いインストーラー側との乖離が起きないよう改善。
+     - `scripts/download_models.py` にて新モデル確認後に旧 `models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17` および `models/npu/sensevoice` が残っていれば自動削除するようにし、不要ファイルと中華系モデルをユーザー環境からも除去。
+     - `main.py` 起動時に `zh` / `ko` が選択済みかつ新モデル未取得の場合に明確な警告バナーを表示するよう追加（旧 `v1.0.3` 以下のアプリ内アップデータ経由からの移行ユーザーへの案内強化）。
+  4. **リリースバージョン更新 (`version.txt`, `config.default.json`)**:
+     - `1.0.3` ➔ `1.0.4` へ更新。

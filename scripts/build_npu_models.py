@@ -4,7 +4,6 @@ Hayamimi Polyglot - build the NPU model set (development / CI tool).
 Produces OpenVINO IR (fp16) models under <out>/ for the Intel NPU backends:
 
     reazon/      ReazonSpeech zipformer2 (encoder fixed to a 15 s window; decoder/joiner for CPU)
-    sensevoice/  SenseVoice Small (whole network, fixed 15 s window, LayerNorm rescaled for fp16)
     parakeet/    Parakeet TDT 0.6B v3 (downloaded as-is from FluidInference/parakeet-tdt-0.6b-v3-ov)
 
 Why this is needed: NPUs need static shapes and fp16-safe numerics, and the shipped CPU models
@@ -12,7 +11,7 @@ are dynamic-shape int8. The converted models are an *add-on*; the CPU models sta
 
 Requirements (build machine only, never shipped to users): onnx, openvino, numpy.
 
-    python scripts/build_npu_models.py --out models/npu              # reazon + sensevoice
+    python scripts/build_npu_models.py --out models/npu              # reazon
     python scripts/build_npu_models.py --out models/npu --with-parakeet
 """
 
@@ -189,10 +188,10 @@ def fetch_parakeet(out: Path) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=MODELS / "npu")
-    ap.add_argument("--only", choices=["reazon", "sensevoice", "parakeet"])
+    ap.add_argument("--only", choices=["reazon", "parakeet"])
     ap.add_argument("--with-parakeet", action="store_true")
     args = ap.parse_args()
-    todo = [args.only] if args.only else ["reazon", "sensevoice"] + (["parakeet"] if args.with_parakeet else [])
+    todo = [args.only] if args.only else ["reazon"] + (["parakeet"] if args.with_parakeet else [])
     if len(todo) > 1:
         # OpenVINO numbers its nodes with a process-wide counter, so each model is built in its own
         # fresh process. That keeps the generated files byte-identical between runs and machines,
@@ -205,8 +204,6 @@ def main() -> int:
     name = todo[0]
     if name == "reazon":
         build_reazon(args.out)
-    elif name == "sensevoice":
-        build_sensevoice(args.out)
     else:
         fetch_parakeet(args.out)
     return 0

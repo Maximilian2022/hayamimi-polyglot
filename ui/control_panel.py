@@ -323,10 +323,10 @@ class ControlPanel(QtWidgets.QWidget):
 
         # High Accuracy ASR Mode Toggle
         row_asr = QtWidgets.QHBoxLayout()
-        self.chk_high_acc = QtWidgets.QCheckBox("⚡ 高精度 ASR モード (英語: Parakeet TDT / 多言語: SenseVoice)")
+        self.chk_high_acc = QtWidgets.QCheckBox("⚡ 高精度 ASR モード (欧米: Parakeet / 中: Moonshine / 韓: Nemotron)")
         self.chk_high_acc.setChecked(True)
         self.chk_high_acc.setStyleSheet("color: #38BDF8; font-weight: bold;")
-        self.chk_high_acc.setToolTip("【推奨: デフォルトON】\n英語・欧州言語は Parakeet TDT v3、中国語・韓国語は SenseVoice Small を併用して認識します。\nOFF にすると軽量な ReazonSpeech のみで動作します。")
+        self.chk_high_acc.setToolTip("【推奨: デフォルトON】\n英語・欧州言語は Parakeet TDT v3、中国語は Moonshine、韓国語は Nemotron 3.5 を併用して認識します。\nOFF にすると軽量な ReazonSpeech のみで動作します。")
         self.chk_high_acc.toggled.connect(self.on_high_accuracy_toggled)
         row_asr.addWidget(self.chk_high_acc)
         settings_layout.addLayout(row_asr)
@@ -827,7 +827,7 @@ class ControlPanel(QtWidgets.QWidget):
             return
         if not summary:
             return
-        names = {"reazon": "日本語", "parakeet": "英・仏・独・西", "sensevoice": "中・韓"}
+        names = {"reazon": "日本語", "parakeet": "英・仏・独・西"}
         parts = []
         for key, state in summary.items():
             label = names.get(key, key)

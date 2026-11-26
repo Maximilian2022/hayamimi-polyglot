@@ -3,7 +3,7 @@ Hayamimi Polyglot - package the NPU add-on ZIPs (release tool, run on a build ma
 
 Creates two ZIPs that users drop into the app's `addons/` folder (no manual unzip needed):
 
-    hayamimi-polyglot-npu-addon-core-<ver>-windows.zip   OpenVINO runtime + ReazonSpeech + SenseVoice  (ja, zh, ko)
+    hayamimi-polyglot-npu-addon-core-<ver>-windows.zip   OpenVINO runtime + ReazonSpeech                (ja)
     hayamimi-polyglot-npu-addon-euro-<ver>-windows.zip   Parakeet TDT v3                              (en, fr, de, es)
 
 Safety rules enforced here (docs/npu_design.md section 8.5, Windows Smart App Control):
@@ -61,14 +61,16 @@ def check_signatures(files: List[Path]) -> None:
         " \"$($s.Status)`t$subj`t$_\" }"
     )
     import os
+    import shutil
     import tempfile
 
+    ps_exe = shutil.which("pwsh") or "powershell"
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tf:
         tf.write(listing)
         list_path = tf.name
     try:
         out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            [ps_exe, "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True, text=True, encoding="utf-8", env={**os.environ, "HAY_LIST": list_path}, check=True,
         ).stdout
     finally:
@@ -149,7 +151,7 @@ def main() -> int:
     ov = args.packages / "openvino"
     if not (ov / "__init__.py").is_file():
         raise SystemExit(f"OpenVINO package not found in {args.packages} (see the usage in this file's docstring)")
-    for needed in ("reazon", "sensevoice", "parakeet"):
+    for needed in ("reazon", "parakeet"):
         if not (args.models / needed / ("meta.json" if needed != "parakeet" else "parakeet_encoder.xml")).is_file():
             raise SystemExit(f"NPU model set '{needed}' not found in {args.models}; run scripts/build_npu_models.py first")
 
@@ -162,7 +164,6 @@ def main() -> int:
         core_files.update({k: v for k, v in collect(dist_info, f"packages/{dist_info.name}").items()
                            if v.name not in skip_meta})
     core_files.update(collect(args.models / "reazon", "models/npu/reazon"))
-    core_files.update(collect(args.models / "sensevoice", "models/npu/sensevoice"))
     euro_files = collect(args.models / "parakeet", "models/npu/parakeet")
 
     known: Dict[str, dict] = {}

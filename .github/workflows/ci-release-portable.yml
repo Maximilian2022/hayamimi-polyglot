@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: models
-          key: models-int8-full-v1
+          key: models-int8-full-v2
 
       - name: Ensure Complete AI Models (Python 3.14)
         shell: bash
@@ -170,7 +170,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: models
-          key: models-int8-full-v1
+          key: models-int8-full-v2
 
       - name: Ensure Complete AI Models (Python 3.14)
         run: |

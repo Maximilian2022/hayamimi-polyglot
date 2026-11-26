@@ -373,7 +373,7 @@ class InstallWorker(QThread):
             self.log_signal.emit("✓ 依存ライブラリの同期完了")
             self.progress_signal.emit(55)
 
-            # 5. Populate / Download All Required Models
+            # 5. Populate / Download All Required Models via target_dir/scripts/download_models.py
             models_dir = self.target_dir / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
 
@@ -387,7 +387,8 @@ class InstallWorker(QThread):
                     "mojicast-m2m100-ct2",
                     "mojicast-fugumt-ja-en-ct2",
                     "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8",
-                    "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17",
+                    "moonshine-streaming-tiny-zh-onnx",
+                    "sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8",
                 ]:
                     src = local_cache / m
                     dst = models_dir / m
@@ -398,79 +399,33 @@ class InstallWorker(QThread):
                         else:
                             shutil.copy2(src, dst)
 
-            # 5-1. Silero VAD (Required)
-            vad_file = models_dir / "silero_vad.onnx"
-            if not vad_file.is_file():
-                self.log_signal.emit("⬇️ Silero VAD 音声区間検出モデルをダウンロード中...")
-                _download_url(
-                    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx",
-                    vad_file,
+            dl_script = self.target_dir / "scripts" / "download_models.py"
+            if dl_script.is_file():
+                self.log_signal.emit("⬇️ 必須・選択 AI モデルを確認・取得中...")
+                dl_cmd = [str(py_exe), str(dl_script), "--models-dir", str(models_dir)]
+                if not self.with_parakeet:
+                    dl_cmd.append("--no-parakeet")
+                if not self.with_sense_voice:
+                    dl_cmd.append("--no-asian-asr")
+                dl_proc = subprocess.Popen(
+                    dl_cmd,
+                    cwd=str(self.target_dir),
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
-                self.log_signal.emit("✓ Silero VAD 配備完了")
-
-            # 5-2. ReazonSpeech INT8 Zipformer (Required)
-            rz_dir = models_dir / "sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17"
-            if not (rz_dir.is_dir() and (rz_dir / "tokens.txt").is_file()):
-                self.log_signal.emit("⬇️ ReazonSpeech 日本語ASRモデル (INT8) をダウンロード中...")
-                rz_tar = models_dir / "reazonspeech.tar.bz2"
-                _download_url(
-                    "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ja-en-reazonspeech-2025-01-17.tar.bz2",
-                    rz_tar,
-                )
-                _safe_extract_tar(rz_tar, models_dir)
-                rz_tar.unlink(missing_ok=True)
-                self.log_signal.emit("✓ ReazonSpeech 配備完了")
-
-            self.progress_signal.emit(68)
-
-            # 5-3. M2M-100 & FuguMT Translation Models (Required)
-            m2m_dir = models_dir / "mojicast-m2m100-ct2"
-            m2m_dir.mkdir(parents=True, exist_ok=True)
-            for fname in ["model.bin", "config.json", "shared_vocabulary.json", "sentencepiece.model"]:
-                dst_f = m2m_dir / fname
-                if not dst_f.is_file() or dst_f.stat().st_size == 0:
-                    self.log_signal.emit(f"⬇️ 多言語翻訳モデル M2M-100 ({fname}) をダウンロード中...")
-                    _download_url(f"https://huggingface.co/ishiki-emo/mojicast-m2m100-ct2/resolve/main/{fname}", dst_f)
-
-            fugu_dir = models_dir / "mojicast-fugumt-ja-en-ct2"
-            fugu_dir.mkdir(parents=True, exist_ok=True)
-            for fname in ["model.bin", "config.json", "shared_vocabulary.json", "source.spm", "target.spm"]:
-                dst_f = fugu_dir / fname
-                if not dst_f.is_file() or dst_f.stat().st_size == 0:
-                    self.log_signal.emit(f"⬇️ 日英翻訳モデル FuguMT ({fname}) をダウンロード中...")
-                    _download_url(f"https://huggingface.co/ishiki-emo/mojicast-fugumt-ja-en-ct2/resolve/main/{fname}", dst_f)
-
-            self.progress_signal.emit(78)
-
-            # 5-4. Parakeet TDT v3 (English & European ASR)
-            if self.with_parakeet:
-                p_dir_v3 = models_dir / "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
-                if not (p_dir_v3.is_dir() and (p_dir_v3 / "tokens.txt").is_file()):
-                    self.log_signal.emit("⬇️ Parakeet TDT v3 英語・欧州言語ASRモデルをダウンロード中...")
-                    p_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8.tar.bz2"
-                    tar_path = models_dir / "parakeet.tar.bz2"
-                    try:
-                        _download_url(p_url, tar_path)
-                        _safe_extract_tar(tar_path, models_dir)
-                        tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ Parakeet TDT v3 配備完了")
-                    except Exception as e:
-                        self.log_signal.emit(f"⚠️ Parakeet ダウンロード失敗: {e}")
-
-            # 5-5. SenseVoice Small (Chinese & Korean ASR)
-            if self.with_sense_voice:
-                sv_dir = models_dir / "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-                if not (sv_dir.is_dir() and (sv_dir / "tokens.txt").is_file()):
-                    self.log_signal.emit("⬇️ SenseVoice Small 中国語・韓国語ASRモデルをダウンロード中...")
-                    sv_url = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2"
-                    tar_path = models_dir / "sense-voice.tar.bz2"
-                    try:
-                        _download_url(sv_url, tar_path)
-                        _safe_extract_tar(tar_path, models_dir)
-                        tar_path.unlink(missing_ok=True)
-                        self.log_signal.emit("✓ SenseVoice Small 配備完了")
-                    except Exception as e:
-                        self.log_signal.emit(f"⚠️ SenseVoice ダウンロード失敗: {e}")
+                assert dl_proc.stdout is not None
+                for line in dl_proc.stdout:
+                    s = line.rstrip()
+                    if s:
+                        self.log_signal.emit(s)
+                rc_dl = dl_proc.wait()
+                if rc_dl != 0:
+                    raise RuntimeError(f"download_models.py が終了コード {rc_dl} で失敗しました")
+            else:
+                raise RuntimeError(f"モデル取得スクリプトが見つかりません: {dl_script}")
 
             self.progress_signal.emit(88)
 
@@ -627,10 +582,10 @@ class InstallerWindow(QMainWindow):
         group_models_layout.addWidget(self.chk_parakeet)
         group_models_layout.addWidget(lbl_parakeet_sub)
 
-        self.chk_sensevoice = QCheckBox("🚀 中国語・韓国語 ASR (SenseVoice Small: 約 240MB)")
+        self.chk_sensevoice = QCheckBox("🚀 中国語・韓国語 ASR (Moonshine Zh + Nemotron 3.5: 約 700MB)")
         self.chk_sensevoice.setChecked(True)
         self.chk_sensevoice.setEnabled(True)
-        lbl_sv_sub = QLabel("  • 中国語・韓国語に対応する音声認識モデル (CPU INT8)")
+        lbl_sv_sub = QLabel("  • 中国語 (Moonshine MIT) ・韓国語 (NVIDIA Nemotron 3.5 OpenMDW-1.1) 音声認識モデル")
         lbl_sv_sub.setObjectName("lblSub")
         group_models_layout.addWidget(self.chk_sensevoice)
         group_models_layout.addWidget(lbl_sv_sub)
