@@ -72,8 +72,9 @@ jobs:
           $installPath = Join-Path $env:RUNNER_TEMP "hayamimi-oneliner-test"
           New-Item -ItemType Directory -Path $installPath -Force | Out-Null
           Copy-Item -Path "models" -Destination (Join-Path $installPath "models") -Recurse -Force
-          Write-Host "Testing setup.ps1 in unattended mode..."
-          & .\setup.ps1 -Unattended -InstallPath $installPath
+          Write-Host "Testing setup.ps1 under Windows PowerShell 5.1 (powershell.exe) in unattended mode..."
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\setup.ps1 -Unattended -InstallPath $installPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:PYTHONIOENCODING = "utf-8"
@@ -93,6 +94,8 @@ jobs:
           $pyExe = Join-Path $installPath ".venv\Scripts\python.exe"
           Write-Host "Attempting to enable Microsoft Defender MAPS cloud reputation queries on runner..."
           try {
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet" -Name "SpynetReporting" -ErrorAction SilentlyContinue
+            Remove-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows Defender\Spynet" -Name "SubmitSamplesConsent" -ErrorAction SilentlyContinue
             Start-Service -Name WinDefend -ErrorAction SilentlyContinue
             Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent SendSafeSamples -ErrorAction SilentlyContinue
           } catch {

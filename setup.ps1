@@ -16,6 +16,12 @@ param(
 #Requires -Version 5.1
 
 # Set UTF-8 encoding
+# Pure 7-bit ASCII source for Windows PowerShell 5.1 & 7 compatibility:
+# Avoids both UTF-8 BOM errors in `irm ... | iex` and CP932 syntax corruption in local `.\setup.ps1`.
+function Invoke-DecodeMsg([string]$Escaped) {
+    return [regex]::Unescape($Escaped)
+}
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -24,7 +30,8 @@ if (-not $env:UV_SYSTEM_CERTS) { $env:UV_SYSTEM_CERTS = "true" }
 if (-not $env:PIP_USE_FEATURE) { $env:PIP_USE_FEATURE = "truststore" }
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "  🎙️🌐 Hayamimi Polyglot - Setup & Updater (Windows)" -ForegroundColor Cyan
+# Banner: Hayamimi Polyglot - Setup & Updater (Windows)
+Write-Host (Invoke-DecodeMsg '  \ud83c\udf99\ufe0f\ud83c\udf10 Hayamimi Polyglot - Setup & Updater (Windows)') -ForegroundColor Cyan
 Write-Host "=======================================================" -ForegroundColor Cyan
 
 # 1. Verify / Install uv
@@ -34,18 +41,21 @@ if (-not $uvExe) {
     if (Test-Path $localUv) {
         $uvExe = $localUv
     } else {
-        Write-Host "⬇️ uv (Python環境マネージャー) をインストール中..." -ForegroundColor Cyan
+        # Installing uv (Python environment manager)...
+        Write-Host (Invoke-DecodeMsg '\u2b07\ufe0f uv (Python\u74b0\u5883\u30de\u30cd\u30fc\u30b8\u30e3\u30fc) \u3092\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb\u4e2d...') -ForegroundColor Cyan
         irm https://astral.sh/uv/install.ps1 | iex
         $uvExe = $localUv
     }
 }
 
 if (-not (Test-Path $uvExe)) {
-    Write-Error "uv のインストールに失敗しました。"
+    # Failed to install uv.
+    Write-Error (Invoke-DecodeMsg 'uv \u306e\u30a4\u30f3\u30b9\u30c8\u30fc\u30eb\u306b\u5931\u6557\u3057\u307e\u3057\u305f\u3002')
     exit 1
 }
 
-Write-Host "✓ uv 検出完了: $uvExe" -ForegroundColor Green
+# uv detected
+Write-Host "$(Invoke-DecodeMsg '\u2713 uv \u691c\u51fa\u5b8c\u4e86: ')$uvExe" -ForegroundColor Green
 
 # 2. Determine Script Directory & installer_gui.py safely (avoid untrusted CWD when piped)
 $ScriptDirectory = $null
@@ -59,7 +69,8 @@ $guiScript = if ($ScriptDirectory) { Join-Path $ScriptDirectory "installer_gui.p
 
 # If running via Web one-liner (irm ... | iex), fetch installer_gui.py to isolated TEMP dir
 if (-not $guiScript -or -not (Test-Path $guiScript)) {
-    Write-Host "⬇️ リモートから最新の GUI インストーラーを取得中..." -ForegroundColor Cyan
+    # Fetching latest GUI installer from remote...
+    Write-Host (Invoke-DecodeMsg '\u2b07\ufe0f \u30ea\u30e2\u30fc\u30c8\u304b\u3089\u6700\u65b0\u306e GUI \u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u30fc\u3092\u53d6\u5f97\u4e2d...') -ForegroundColor Cyan
     $randSuffix = [System.Guid]::NewGuid().ToString("N").Substring(0, 8)
     $tempDir = Join-Path $env:TEMP "hayamimi-setup-$randSuffix"
     New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -69,13 +80,15 @@ if (-not $guiScript -or -not (Test-Path $guiScript)) {
     try {
         Invoke-WebRequest -Uri $remoteGuiUrl -OutFile $guiScript -UseBasicParsing
     } catch {
-        Write-Warning "GUI インストーラーのリモート取得に失敗しました: $_"
+        # Failed to fetch GUI installer from remote
+        Write-Warning "$(Invoke-DecodeMsg 'GUI \u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u30fc\u306e\u30ea\u30e2\u30fc\u30c8\u53d6\u5f97\u306b\u5931\u6557\u3057\u307e\u3057\u305f: ')$_"
     }
 }
 
 # 3. Launch Unified PySide6 GUI Installer
 if (-not $Cli -and -not $Unattended -and (Test-Path $guiScript)) {
-    Write-Host "🚀 GUI インストーラー (PySide6) を起動しています..." -ForegroundColor Cyan
+    # Launching GUI installer (PySide6)...
+    Write-Host (Invoke-DecodeMsg '\ud83d\ude80 GUI \u30a4\u30f3\u30b9\u30c8\u30fc\u30e9\u30fc (PySide6) \u3092\u8d77\u52d5\u3057\u3066\u3044\u307e\u3059...') -ForegroundColor Cyan
     & $uvExe run --python 3.14 --with PySide6 python $guiScript
     exit $LASTEXITCODE
 }
@@ -83,7 +96,8 @@ if (-not $Cli -and -not $Unattended -and (Test-Path $guiScript)) {
 # ------------------------------------------------------------------------------
 # 4. CLI Fallback Mode (for headless / --cli / --unattended)
 # ------------------------------------------------------------------------------
-Write-Host "📋 CLIモードでセットアップを継続します..." -ForegroundColor Yellow
+# Continuing setup in CLI mode...
+Write-Host (Invoke-DecodeMsg '\ud83d\udccb CLI\u30e2\u30fc\u30c9\u3067\u30bb\u30c3\u30c8\u30a2\u30c3\u30d7\u3092\u7d99\u7d9a\u3057\u307e\u3059...') -ForegroundColor Yellow
 
 $docsDir = [Environment]::GetFolderPath("MyDocuments")
 $isCloud = $false
@@ -100,7 +114,8 @@ $defaultTarget = if ($isCloud) {
 }
 
 $targetDir = if ($InstallPath) { $InstallPath } else { $defaultTarget }
-Write-Host "📁 インストール先: $targetDir" -ForegroundColor Cyan
+# Install destination
+Write-Host "$(Invoke-DecodeMsg '\ud83d\udcc1 \u30a4\u30f3\u30b9\u30c8\u30fc\u30eb\u5148: ')$targetDir" -ForegroundColor Cyan
 
 if (-not (Test-Path $targetDir)) {
     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
@@ -109,11 +124,13 @@ if (-not (Test-Path $targetDir)) {
 $venvDir = Join-Path $targetDir ".venv"
 $pyExe = Join-Path $venvDir "Scripts\python.exe"
 
-Write-Host "🐍 Python 3.14 仮想環境を構築中..." -ForegroundColor Cyan
+# Creating Python 3.14 virtual environment...
+Write-Host (Invoke-DecodeMsg '\ud83d\udc0d Python 3.14 \u4eee\u60f3\u74b0\u5883\u3092\u69cb\u7bc9\u4e2d...') -ForegroundColor Cyan
 & $uvExe venv --clear $venvDir --python 3.14 | Out-Null
 
 if ($ScriptDirectory -and ($ScriptDirectory -ne $targetDir) -and (Test-Path (Join-Path $ScriptDirectory "main.py"))) {
-    Write-Host "📋 アプリケーションファイルを配置中..." -ForegroundColor Cyan
+    # Deploying application files...
+    Write-Host (Invoke-DecodeMsg '\ud83d\udccb \u30a2\u30d7\u30ea\u30b1\u30fc\u30b7\u30e7\u30f3\u30d5\u30a1\u30a4\u30eb\u3092\u914d\u7f6e\u4e2d...') -ForegroundColor Cyan
     Copy-Item -Path (Join-Path $ScriptDirectory "core") -Destination (Join-Path $targetDir "core") -Recurse -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "ui") -Destination (Join-Path $targetDir "ui") -Recurse -Force
     if (Test-Path (Join-Path $ScriptDirectory "scripts")) {
@@ -142,7 +159,8 @@ if ($ScriptDirectory -and ($ScriptDirectory -ne $targetDir) -and (Test-Path (Joi
     Copy-Item -Path (Join-Path $ScriptDirectory "start.bat") -Destination (Join-Path $targetDir "start.bat") -Force
     Copy-Item -Path (Join-Path $ScriptDirectory "version.txt") -Destination (Join-Path $targetDir "version.txt") -Force
 } elseif (-not (Test-Path (Join-Path $targetDir "main.py"))) {
-    Write-Host "🌐 GitHub からプログラムファイルを取得中..." -ForegroundColor Cyan
+    # Downloading application source from GitHub...
+    Write-Host (Invoke-DecodeMsg '\ud83c\udf10 GitHub \u304b\u3089\u30d7\u30ed\u30b0\u30e9\u30e0\u30d5\u30a1\u30a4\u30eb\u3092\u53d6\u5f97\u4e2d...') -ForegroundColor Cyan
     $repoZipUrl = if ($env:HAYAMIMI_REPO_ZIP) { $env:HAYAMIMI_REPO_ZIP } else { "https://github.com/Maximilian2022/hayamimi-polyglot/archive/refs/heads/main.zip" }
     $zipPath = Join-Path $targetDir "repo_download.zip"
     $extractTemp = Join-Path $targetDir "_temp_extract"
@@ -166,13 +184,15 @@ if ($ScriptDirectory -and ($ScriptDirectory -ne $targetDir) -and (Test-Path (Joi
     }
 }
 
-Write-Host "📦 依存パッケージを同期中..." -ForegroundColor Cyan
+# Synchronizing Python dependencies...
+Write-Host (Invoke-DecodeMsg '\ud83d\udce6 \u4f9d\u5b58\u30d1\u30c3\u30b1\u30fc\u30b8\u3092\u540c\u671f\u4e2d...') -ForegroundColor Cyan
 & $uvExe pip install -r (Join-Path $targetDir "requirements.txt") --python $pyExe --upgrade | Out-Null
 
 # Ensure AI Models via download_models.py
 $dlScript = Join-Path $targetDir "scripts\download_models.py"
 if (Test-Path $dlScript) {
-    Write-Host "⬇️ 必須 AI モデルを確認・取得中..." -ForegroundColor Cyan
+    # Verifying / downloading required AI models...
+    Write-Host (Invoke-DecodeMsg '\u2b07\ufe0f \u5fc5\u9808 AI \u30e2\u30c7\u30eb\u3092\u78ba\u8a8d\u30fb\u53d6\u5f97\u4e2d...') -ForegroundColor Cyan
     & $pyExe $dlScript --models-dir (Join-Path $targetDir "models")
 }
 
@@ -180,11 +200,13 @@ if (Test-Path $dlScript) {
 if ($WithNpu) {
     $npuScript = Join-Path $targetDir "scripts\fetch_npu_addon.py"
     if (Test-Path $npuScript) {
-        Write-Host "⬇️ NPU アドオンを取得中（初回のみ・約 1.8GB）..." -ForegroundColor Cyan
+        # Fetching optional Intel NPU add-on...
+        Write-Host (Invoke-DecodeMsg '\u2b07\ufe0f NPU \u30a2\u30c9\u30aa\u30f3\u3092\u53d6\u5f97\u4e2d\uff08\u521d\u56de\u306e\u307f\u30fb\u7d04 1.8GB\uff09...') -ForegroundColor Cyan
         & $pyExe $npuScript
     }
 }
 
 Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host "🎉 セットアップが正常に完了しました。" -ForegroundColor Green
+# Setup completed successfully.
+Write-Host (Invoke-DecodeMsg '\ud83c\udf89 \u30bb\u30c3\u30c8\u30a2\u30c3\u30d7\u304c\u6b63\u5e38\u306b\u5b8c\u4e86\u3057\u307e\u3057\u305f\u3002') -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan

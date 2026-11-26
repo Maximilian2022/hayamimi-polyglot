@@ -42,7 +42,7 @@ hayamimi-polyglot/
 │   └── remediation_history.md # 変更・改修履歴
 ├── main.py                 # アプリケーションエントリポイント
 ├── installer_gui.py        # クロスプラットフォーム (Win/Mac共通) PySide6 GUIインストーラー
-├── setup.ps1               # Windows 11 向けセットアップランチャー (UTF-8 with BOM)
+├── setup.ps1               # Windows 11 向けセットアップランチャー (7-bit ASCII: PS 5.1 直接実行 & irm|iex 両対応)
 ├── setup.sh                # macOS 向けセットアップランチャー (LF)
 ├── start.bat / start.sh    # 起動ランチャー
 ├── test_polyglot_suite.py  # 総合検証テストスイート (全8テスト)

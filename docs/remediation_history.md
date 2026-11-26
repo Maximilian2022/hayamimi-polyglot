@@ -881,3 +881,6 @@
      - `version.txt` および `config.default.json` を `1.0.3` に更新（NPU アドオンの再現性ハッシュ維持のため `core/npu/addon_min_app.txt` は `1.0.2` を維持）。
      - `ci-release-portable.yml` のポータブルビルド実行時に `--with pip --with setuptools --with wheel` を明示し、`uv run --python 3.14` 環境での macOS wheel 収集時における `pip` 不在エラーを防止。
      - `setup.ps1` の CLI インストール時に `tests_data/` もコピー対象へ追加し、展開先での `test_npu_suite.py` 実行時のゴールデンデータ参照を保証。
+  5. **`setup.ps1` の Windows PowerShell 5.1 ローカル実行 & Web ワンライナー完全両立化（方法A）および Windows Server ランナー ISG カナリア判定 (`setup.ps1`, `scripts/check_sac_trust.py`, `.github/workflows/ci-release-portable.yml`)**:
+     - 日本語 Windows の PowerShell 5.1 (`powershell.exe`) では、UTF-8 BOM ありだと `irm ... | iex` ワンライナーで `CmdletBinding` 構文エラーになり、逆に生日本語を含む BOM なし UTF-8 だとローカル `.\setup.ps1` 実行時に CP932 誤読による構文エラーが発生する問題を解消するため、`setup.ps1` のソース自体を純粋な 7-bit ASCII（BOM なし）で構成し、日本語・絵文字メッセージは `[regex]::Unescape` ヘルパー（`Invoke-DecodeMsg`）で復元する方式（方法A）へ改修。実機 PowerShell 5.1 の `Parser::ParseFile` と `scriptblock::Create` の双方でエラー 0 件を確認し、CI 上でも `powershell.exe` (5.1) で `setup.ps1` を実行検証するよう強化。
+     - GitHub Actions の `windows-latest`（Windows Server）では OS ポリシーにより Defender クラウド ISG 照会が無効化されオフライン VDM 定義の 3 件のみが `Trusted` となる挙動を確認したため、`--allow-runner-no-cloud` 指定時にベースラインカナリア（`numpy/_multiarray_umath`）を含む過半数が未評価となる場合はランナーのクラウド無効状態として安全に警告通過させる判定を追加。

@@ -340,16 +340,22 @@ def audit_site_packages(
                 )
                 break
 
-    # Detect runner-wide MAPS cloud disablement when running in CI (--allow-runner-no-cloud):
-    # In a full environment (>= 5 unsigned baseline packages including numpy/psutil/cffi),
-    # if ZERO binaries are recognized as Trusted, Defender MAPS cloud queries are blocked by OS policy.
-    if allow_runner_no_cloud and len(trusted_list) == 0 and (
-        len(error_list) > 0 or len(unsigned_targets) >= 5
+    # Detect runner-wide MAPS / ISG cloud disablement when running in CI (--allow-runner-no-cloud):
+    # On GitHub-hosted Windows Server runners, Smart App Control / ISG cloud queries are disabled by
+    # OS SKU or policy, so MpCmdRun only consults offline VDM signatures (matching ~3 old C DLLs while
+    # baseline packages like numpy/_multiarray_umath report untrusted).
+    canary_untrusted = any(
+        "numpy" in rel_s and "_multiarray_umath" in rel_s
+        for rel_s, _ in untrusted_list
+    )
+    if allow_runner_no_cloud and (
+        (len(trusted_list) == 0 and (len(error_list) > 0 or len(unsigned_targets) >= 5))
+        or (canary_untrusted and len(untrusted_list) >= max(5, len(unsigned_targets) // 2))
     ):
         print(
-            "\n⚠️ [WARN] Defender cloud reputation (MAPS / ISG) appears disabled by runner OS policy "
-            f"(0/{len(unsigned_targets)} cloud verdicts returned Trusted). "
-            "Authenticode & runtime import checks passed."
+            "\n⚠️ [WARN] Defender ISG cloud reputation is inactive on this Windows Server runner "
+            f"(only {len(trusted_list)}/{len(unsigned_targets)} matched offline VDM; baseline numpy canary untrusted). "
+            "Authenticode signature & runtime import checks passed."
         )
         return 0
 
